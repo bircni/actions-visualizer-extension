@@ -26,6 +26,7 @@ the ci, e2e and security jobs, with ci expanded to show its steps.](assets/examp
 | --- | --- |
 | **Laid out like GitHub** | Jobs at the same depth share a card, matrix jobs get their own tabbed card, and triggers live in the header rather than as boxes in the graph. |
 | **Simulates a run** | Pick an event, a ref and any `workflow_dispatch` inputs. Every job whose `if:` depends on them updates instantly. |
+| **Plays through a run** | Step through the workflow deciding what happens. Fail a step and watch `if: failure()` fire, `continue-on-error` absorb it, and the jobs downstream skip. |
 | **Honest about the unknown** | A condition that depends on a secret or a step output is marked undecided rather than guessed at — and you can pin a value to decide it. |
 | **Catches real mistakes** | Missing `needs:` targets, circular dependencies, always-false conditions and job conditions using a context GitHub only gives to steps — in the Problems panel, not just the graph. |
 | **Live** | Re-renders as you type; click any job to jump to its line in the YAML. |
@@ -54,6 +55,7 @@ also works on a draft outside a workflows directory, as long as the file has bot
 | Expand a job's steps | <kbd>Space</kbd>, or <kbd>Alt</kbd>-click |
 | Zoom | <kbd>+</kbd> <kbd>-</kbd>, or the mouse wheel |
 | Fit the graph to the view | <kbd>0</kbd> |
+| Start or stop a playthrough | the **▶** button |
 | Pan | drag |
 
 ## Simulating a run
@@ -89,6 +91,24 @@ Context availability is modelled too. A job-level `if:` sees only `github`, `nee
 
 </details>
 
+## Playing through a run
+
+Press **▶** to walk the workflow a step at a time. At each step you say what happened, and the graph
+follows the consequences:
+
+- **Failing a step** fails its job — unless the step declares `continue-on-error`.
+- Steps whose `if:` uses `failure()` or `always()` run exactly when they would in a real run.
+- A job whose dependency failed is skipped, unless it opts back in with `always()`. When it does,
+  its own status starts clean rather than inheriting the failure.
+- **Outputs flow.** The bar offers a field for every output the step is expected to produce — read
+  from `>> $GITHUB_OUTPUT` in its script and from wherever the workflow reads it back. Fill one in
+  and it reaches `steps.<id>.outputs.*`, then `needs.<job>.outputs.*` for the jobs downstream.
+
+Undo takes back the last answer, restart empties the run, and stop returns to the static graph with
+your event, ref, inputs and pins untouched. Focus a job before pressing play to walk only that job.
+
+Nothing is executed and nothing is contacted — you are deciding what would happen, not running it.
+
 ## Reading the graph
 
 | Element | Meaning |
@@ -98,6 +118,9 @@ Context availability is modelled too. A job-level `if:` sees only `github`, `nee
 | Green check | The job would run for the simulated event |
 | Dashed grey circle, struck-through name | The job would be skipped; hover for why |
 | Amber `?` | The condition cannot be decided statically; pin its value in the header |
+| Blue ring with a dot | The step a playthrough is waiting on |
+| Red ✕ | A step or job you marked as failed |
+| Hollow grey circle | Not reached yet in a playthrough |
 | Red dashed card | A `needs:` reference to a job that does not exist |
 | Solid line with end dots | A `needs:` dependency |
 | Faded dashed line | Every job behind this dependency is skipped |
