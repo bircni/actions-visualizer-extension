@@ -7,16 +7,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { buildGraph } from "../src/workflow/graph.js";
-import { layoutGraph } from "../src/workflow/layout.js";
+import { buildGraphMessage } from "../src/preview/graphMessage.js";
 import { parseWorkflow } from "../src/workflow/parse.js";
-import {
-  inputsFor,
-  refChoicesFor,
-  unresolvedPaths,
-  withInputDefaults,
-  type Simulation,
-} from "../src/workflow/simulate.js";
+import { refChoicesFor, type Simulation } from "../src/workflow/simulate.js";
 
 const scriptDir = path.dirname(path.resolve(process.argv[1] ?? ""));
 const rootDir = path.resolve(scriptDir, "..");
@@ -60,33 +53,17 @@ function build(testCase: Case): unknown {
     inputs: {},
     pinned: testCase.pinned ?? {},
   };
-  const expanded = testCase.expanded ?? [];
 
-  const graph = buildGraph(model, {
+  // Through the host's own builder, so the browser spec renders exactly what the
+  // extension posts rather than a look-alike assembled here.
+  return buildGraphMessage(model, {
     fileName: testCase.file,
     showSteps: true,
     expandMatrix: false,
+    direction: "LR",
     simulation,
-    expanded,
-  });
-
-  return {
-    graph: layoutGraph(graph, { direction: "LR", expandedRows: expanded }),
-    simulation: {
-      event,
-      ref: simulation.ref,
-      refChoices: refChoicesFor(trigger),
-      inputs: inputsFor(model, event),
-      values: withInputDefaults(model, simulation),
-      pinnable: [
-        ...new Set([
-          ...unresolvedPaths(model, simulation),
-          ...Object.keys(simulation.pinned ?? {}),
-        ]),
-      ].toSorted(),
-      pinned: simulation.pinned ?? {},
-    },
-  };
+    expanded: testCase.expanded ?? [],
+  }).body;
 }
 
 const payloads: Record<string, unknown> = {};
