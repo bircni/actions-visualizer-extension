@@ -52,7 +52,7 @@ export type EvaluationRuntime = {
   status: "success" | "failure" | "cancelled";
 };
 
-export const DEFAULT_RUNTIME: EvaluationRuntime = { status: "success" };
+const DEFAULT_RUNTIME: EvaluationRuntime = { status: "success" };
 
 function isUnknown(value: ExprValue): value is Unknown {
   return value === UNKNOWN;
