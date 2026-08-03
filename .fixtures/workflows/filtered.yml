@@ -1,0 +1,14 @@
+name: Filtered
+on:
+  push:
+    branches: [main, 'release/*']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm publish

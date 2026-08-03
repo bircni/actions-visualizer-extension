@@ -8,7 +8,7 @@
  * reproduces that grouping; layout then positions the cards.
  */
 
-import { simulateJobs, type JobState, type Simulation } from "./simulate.js";
+import { simulateJobs, triggerFires, type JobState, type Simulation } from "./simulate.js";
 import type { SourceRange, WorkflowJob, WorkflowMatrix, WorkflowModel } from "./model.js";
 
 /** Upper bound on rows produced by expanding a matrix, to keep a card readable. */
@@ -206,6 +206,16 @@ export function buildGraph(model: WorkflowModel, options: BuildGraphOptions): Gr
 
   const warnings: string[] = [];
   const jobIds = new Set(model.jobs.map((job) => job.id));
+
+  // A ref that no filter matches means the workflow would not run at all, which
+  // is worth saying out loud rather than leaving the reader to infer from dimming.
+  const fires = triggerFires(model, options.simulation);
+  if (!fires.matches) {
+    warnings.push(
+      `\`${options.simulation.event ?? "This event"}\` would not fire for \`${options.simulation.ref ?? ""}\`: ${fires.reason ?? ""}.`,
+    );
+  }
+
   const simulation = simulateJobs(model, options.simulation);
   const ranks = computeRanks(model.jobs);
   const expandedIds = new Set(options.expanded);

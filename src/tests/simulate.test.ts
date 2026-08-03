@@ -6,6 +6,7 @@ import {
   inputsFor,
   refChoicesFor,
   simulateJobs,
+  triggerFires,
   unresolvedPaths,
   withInputDefaults,
   type Simulation,
@@ -386,5 +387,63 @@ describe("pinning unknown values", () => {
         pinned: { "secrets.DEPLOY_KEY": "abc" },
       }),
     ).toEqual(["needs.deploy.outputs.url"]);
+  });
+});
+
+describe("trigger filters", () => {
+  const FILTERED = [
+    "on:",
+    "  push:",
+    "    branches: [main, 'release/*']",
+    "    tags: ['v*']",
+    "jobs:",
+    "  build:",
+    "    steps:",
+    "      - run: build",
+  ].join("\n");
+
+  it("fires for a ref the filters accept", () => {
+    const model = parseWorkflow(FILTERED);
+    for (const ref of ["refs/heads/main", "refs/heads/release/1", "refs/tags/v1.0"]) {
+      expect(triggerFires(model, { event: "push", ref, inputs: {} }).matches).toBe(true);
+    }
+  });
+
+  it("does not fire for a ref no filter accepts", () => {
+    const model = parseWorkflow(FILTERED);
+    const result = triggerFires(model, { event: "push", ref: "refs/heads/topic", inputs: {} });
+    expect(result.matches).toBe(false);
+    expect(result.reason).toContain("branches:");
+  });
+
+  it("skips every job when the trigger would not fire", () => {
+    const model = parseWorkflow(FILTERED);
+    const result = simulateJobs(model, {
+      event: "push",
+      ref: "refs/heads/topic",
+      inputs: {},
+    });
+    expect(result.get("build")?.state).toBe("skipped");
+    expect(result.get("build")?.reason).toContain("does not fire");
+    // The job's steps go with it.
+    expect(result.get("build")?.steps).toEqual(["skipped"]);
+  });
+
+  it("fires for anything when the event declares no ref filters", () => {
+    const model = parseWorkflow("on: workflow_dispatch\njobs:\n  a:\n");
+    expect(
+      triggerFires(model, { event: "workflow_dispatch", ref: "refs/heads/x", inputs: {} }).matches,
+    ).toBe(true);
+  });
+
+  it("fires when no ref is being simulated at all", () => {
+    expect(triggerFires(parseWorkflow(FILTERED), { event: "push", inputs: {} }).matches).toBe(true);
+  });
+
+  it("fires when the selected event is not declared by the workflow", () => {
+    expect(
+      triggerFires(parseWorkflow(FILTERED), { event: "schedule", ref: "refs/heads/x", inputs: {} })
+        .matches,
+    ).toBe(true);
   });
 });
