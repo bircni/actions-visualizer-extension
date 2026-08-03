@@ -146,10 +146,23 @@ type ConditionScope = "job" | "step";
 /** Contexts a job-level `if:` may reference, per GitHub's availability table. */
 export const JOB_CONTEXTS = ["github", "needs", "vars", "inputs"] as const;
 
+/**
+ * What a playthrough has established so far, fed back in so conditions can be
+ * decided against a real run rather than against unknowns.
+ */
+export type RunFacts = {
+  /** Jobs that have finished, with the outputs they produced. */
+  jobs: Record<string, { result: string; outputs: Record<string, string> }>;
+  /** Steps already decided in the job being evaluated, keyed by their `id:`. */
+  steps: Record<string, { outcome: string; outputs: Record<string, string> }>;
+};
+
 export type ContextOptions = {
   scope: ConditionScope;
   /** The job the condition belongs to, for `env` and `needs` shaping. */
   job?: WorkflowJob;
+  /** Facts from a playthrough. Without it every runtime value stays unknown. */
+  run?: RunFacts;
 };
 
 /**
@@ -181,14 +194,16 @@ export function buildContexts(
   github["event"] = new PartialRecord({ inputs });
 
   // `needs.<job>` exposes the declared outputs: a name the job declares is unknown
-  // until it runs, but a name it never declares is genuinely absent.
+  // until it runs, but a name it never declares is genuinely absent. Once a
+  // playthrough has actually run the job, both become known.
   const needs: Record<string, ExprValue> = {};
   for (const job of model.jobs) {
+    const finished = options?.run?.jobs[job.id];
     const outputs: Record<string, ExprValue> = {};
     for (const output of job.outputs) {
-      outputs[output.name] = UNKNOWN;
+      outputs[output.name] = finished?.outputs[output.name] ?? UNKNOWN;
     }
-    needs[job.id] = { outputs, result: UNKNOWN };
+    needs[job.id] = { outputs, result: finished?.result ?? UNKNOWN };
   }
 
   const contexts: EvaluationContexts = {
@@ -202,11 +217,28 @@ export function buildContexts(
 
   if (scope === "step") {
     contexts["env"] = new PartialRecord(resolveEnv(model.env, options?.job?.env));
-    contexts["job"] = new PartialRecord({});
     contexts["runner"] = new PartialRecord({});
-    contexts["steps"] = new PartialRecord({});
     contexts["strategy"] = new PartialRecord({});
     contexts["matrix"] = new PartialRecord({});
+
+    const run = options?.run;
+    if (run == null) {
+      contexts["job"] = new PartialRecord({});
+      contexts["steps"] = new PartialRecord({});
+    } else {
+      // Mid-run every step that has happened is known, and one that has not is
+      // genuinely empty rather than unknown — which is what GitHub reports.
+      const steps: Record<string, ExprValue> = {};
+      for (const [id, entry] of Object.entries(run.steps)) {
+        steps[id] = {
+          outcome: entry.outcome,
+          conclusion: entry.outcome,
+          outputs: { ...entry.outputs },
+        };
+      }
+      contexts["steps"] = steps;
+      contexts["job"] = new PartialRecord({});
+    }
   }
 
   applyPinned(contexts, simulation.pinned ?? {});
