@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { logger, setOutputChannel } from "./logger.js";
+import { WorkflowDiagnostics } from "./preview/diagnostics.js";
 import { PreviewManager } from "./preview/previewPanel.js";
 import {
   dispatchPreviewTestMessage,
@@ -50,9 +51,11 @@ export function activate(context: vscode.ExtensionContext): void {
   setOutputChannel(channel);
 
   const manager = new PreviewManager(context.extensionUri);
+  const diagnostics = new WorkflowDiagnostics();
 
   context.subscriptions.push(
     manager,
+    diagnostics,
     vscode.commands.registerCommand("actionsVisualizer.showPreviewToSide", () =>
       showPreview(manager, true),
     ),
