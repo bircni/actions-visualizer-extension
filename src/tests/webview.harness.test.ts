@@ -515,3 +515,79 @@ describe("webview trigger filters", () => {
     expect(harness.document.querySelectorAll(".row.skipped")).toHaveLength(0);
   });
 });
+
+describe("webview accessibility", () => {
+  it("exposes cards as lists and rows as focusable list items", () => {
+    harness = mount();
+    harness.sendGraph(payload("fan-out.yml"));
+    const rows = [...harness.document.querySelectorAll(".row")];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.getAttribute("role")).toBe("listitem");
+      expect(row.getAttribute("tabindex")).toBe("0");
+    }
+    for (const card of harness.document.querySelectorAll(".card")) {
+      expect(card.getAttribute("role")).toBe("list");
+    }
+    expect(harness.document.querySelector("#canvas")?.getAttribute("aria-label")).toBe(
+      "Workflow dependency graph",
+    );
+  });
+
+  it("labels each row with its name, state and runner", () => {
+    harness = mount();
+    harness.sendGraph(payload("fan-out.yml"));
+    const label = harness.document
+      .querySelector('[data-row-id="row:build"]')
+      ?.getAttribute("aria-label");
+    expect(label).toContain("build");
+    expect(label).toContain("would run");
+    expect(label).toContain("ubuntu-latest");
+  });
+
+  it("says why a row is skipped, without the markdown backticks", () => {
+    harness = mount();
+    harness.sendGraph(payload("conditional.yml", { event: "pull_request" }));
+    const label = harness.document.querySelector(".row.skipped")?.getAttribute("aria-label");
+    expect(label).toContain("would be skipped");
+    expect(label).toContain("if: is false");
+    expect(label).not.toContain("`");
+  });
+
+  it("reports whether an expandable row is open", () => {
+    harness = mount();
+    harness.sendGraph(payload("simple.yml"));
+    expect(
+      harness.document.querySelector('[data-row-id="row:build"]')?.getAttribute("aria-label"),
+    ).toContain("collapsed");
+
+    harness.sendGraph(payload("simple.yml", { expanded: ["row:build"] }));
+    expect(
+      harness.document.querySelector('[data-row-id="row:build"]')?.getAttribute("aria-label"),
+    ).toContain("expanded");
+  });
+
+  it("activates a focused row from the keyboard", () => {
+    harness = mount();
+    harness.sendGraph(payload("fan-out.yml"));
+    const { window } = harness.dom;
+    const row = harness.document.querySelector('[data-row-id="row:build"]');
+
+    row?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(harness.posted).toContainEqual(
+      expect.objectContaining({ type: "revealSource", nodeId: "row:build" }),
+    );
+
+    row?.dispatchEvent(new window.KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(harness.posted).toContainEqual({ type: "toggleExpand", nodeId: "row:build" });
+  });
+
+  it("leaves the zoom shortcuts working when no row has focus", () => {
+    harness = mount();
+    harness.sendGraph(payload("fan-out.yml"));
+    const { window } = harness.dom;
+    const before = harness.document.querySelector("#scene")?.getAttribute("transform");
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "+" }));
+    expect(harness.document.querySelector("#scene")?.getAttribute("transform")).not.toBe(before);
+  });
+});

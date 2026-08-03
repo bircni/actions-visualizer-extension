@@ -313,6 +313,16 @@
     cursor: pointer;
   }
 
+  .row:focus {
+    outline: none;
+  }
+
+  .row:focus-visible .row-hit {
+    fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+    stroke: var(--vscode-focusBorder, var(--accent));
+    stroke-width: 2;
+  }
+
   .row-hit {
     fill: transparent;
   }
@@ -449,14 +459,22 @@
 <div id="banner"></div>
 
 <div id="viewport">
-  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+  <svg
+    id="canvas"
+    xmlns="http://www.w3.org/2000/svg"
+    role="group"
+    aria-label="Workflow dependency graph"
+  >
     <g id="scene"></g>
   </svg>
   <div id="message"></div>
 </div>
 
 <div id="legend">
-  <span>Click a job to jump to it in the YAML · Alt-click to expand</span>
+  <span>
+    Click a job to jump to it in the YAML · Alt-click to expand · Arrow keys to move,
+    Enter to reveal, Space to expand
+  </span>
 </div>
 
 <script>
@@ -783,11 +801,94 @@
       return group;
     }
 
+    var STATE_WORDS = {
+      run: "would run",
+      skipped: "would be skipped",
+      unknown: "may or may not run",
+    };
+
+    /** What a screen reader announces for a row. */
+    function rowLabel(row) {
+      var parts = [row.title, STATE_WORDS[row.state] || row.state];
+      if (row.meta) {
+        parts.push(row.meta);
+      }
+      if (row.reason) {
+        parts.push(row.reason.replace(/`/g, ""));
+      }
+      if (row.expandable) {
+        parts.push(row.expanded ? "expanded" : "collapsed");
+      }
+      return parts.join(", ");
+    }
+
+    /** Every row currently drawn, in visual order: left to right, then top down. */
+    function focusableRows() {
+      return Array.prototype.slice.call(scene.querySelectorAll(".row"));
+    }
+
+    function moveFocus(delta) {
+      var rows = focusableRows();
+      if (!rows.length) {
+        return;
+      }
+      var index = rows.indexOf(document.activeElement);
+      var next = index === -1 ? 0 : Math.min(Math.max(index + delta, 0), rows.length - 1);
+      rows[next].focus();
+      scrollRowIntoView(rows[next]);
+    }
+
+    /** Pans so a focused row is on screen, since focus alone does not scroll SVG. */
+    function scrollRowIntoView(rowEl) {
+      var box = rowEl.getBoundingClientRect();
+      var view = viewport.getBoundingClientRect();
+      var dx = 0;
+      var dy = 0;
+      if (box.left < view.left) {
+        dx = view.left - box.left + 40;
+      } else if (box.right > view.right) {
+        dx = view.right - box.right - 40;
+      }
+      if (box.top < view.top) {
+        dy = view.top - box.top + 40;
+      } else if (box.bottom > view.bottom) {
+        dy = view.bottom - box.bottom - 40;
+      }
+      if (dx || dy) {
+        state.offsetX += dx;
+        state.offsetY += dy;
+        applyTransform();
+      }
+    }
+
+    function activateRow(rowId, expand) {
+      var row = findRow(rowId);
+      if (!row) {
+        return;
+      }
+      if (expand) {
+        if (row.expandable) {
+          post({ type: "toggleExpand", nodeId: rowId });
+        }
+        return;
+      }
+      if (row.range) {
+        post({ type: "revealSource", offset: row.range.start, nodeId: rowId });
+      } else if (row.expandable) {
+        post({ type: "toggleExpand", nodeId: rowId });
+      }
+    }
+
     function renderRow(row, card) {
       var group = svgEl("g", { transform: "translate(0," + row.offsetY + ")" });
       group.setAttribute("class", "row " + row.state);
       group.setAttribute("data-row-id", row.id);
       group.setAttribute("data-node-id", row.id);
+      // Focusable and labelled so the graph is usable without a mouse and
+      // legible to a screen reader, which sees only an undifferentiated SVG.
+      group.setAttribute("role", "listitem");
+      group.setAttribute("tabindex", "0");
+      group.setAttribute("aria-label", rowLabel(row));
 
       group.appendChild(
         svgEl("rect", { class: "row-hit", x: 1, y: 0, width: card.width - 2, height: row.height, rx: 5 }),
@@ -857,6 +958,10 @@
       var group = svgEl("g", { transform: "translate(" + card.x + "," + card.y + ")" });
       group.setAttribute("class", "card " + card.kind);
       group.setAttribute("data-card-id", card.id);
+      group.setAttribute("role", "list");
+      if (card.tab) {
+        group.setAttribute("aria-label", card.tab);
+      }
 
       if (card.tab) {
         // GitHub draws the matrix label as a tab attached to the top of the card.
@@ -1048,21 +1153,8 @@
       if (!target || !target.getAttribute || !target.getAttribute("data-node-id")) {
         return;
       }
-      var rowId = target.getAttribute("data-node-id");
-      var row = findRow(rowId);
-      if (!row) {
-        return;
-      }
       // Alt-click expands; a plain click jumps to the YAML.
-      if (event.altKey && row.expandable) {
-        post({ type: "toggleExpand", nodeId: rowId });
-        return;
-      }
-      if (row.range) {
-        post({ type: "revealSource", offset: row.range.start, nodeId: rowId });
-      } else if (row.expandable) {
-        post({ type: "toggleExpand", nodeId: rowId });
-      }
+      activateRow(target.getAttribute("data-node-id"), event.altKey);
     });
 
     function findRow(rowId) {
@@ -1116,6 +1208,47 @@
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") {
         return;
       }
+
+      var focusedRow =
+        event.target && event.target.getAttribute
+          ? event.target.getAttribute("data-row-id")
+          : null;
+
+      if (focusedRow) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          activateRow(focusedRow, false);
+          return;
+        }
+        if (event.key === " " || event.key === "Spacebar") {
+          event.preventDefault();
+          activateRow(focusedRow, true);
+          return;
+        }
+      }
+
+      // Down/Up walk the rows in reading order; Home/End jump to the ends.
+      if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+        event.preventDefault();
+        moveFocus(1);
+        return;
+      }
+      if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveFocus(-1);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        moveFocus(-Number.MAX_SAFE_INTEGER);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        moveFocus(Number.MAX_SAFE_INTEGER);
+        return;
+      }
+
       if (event.key === "+" || event.key === "=") {
         setScale(state.scale * ZOOM_STEP);
       } else if (event.key === "-") {
