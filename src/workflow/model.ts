@@ -40,6 +40,9 @@ export type WorkflowTrigger = {
   range?: SourceRange;
 };
 
+/** An `env:` block, with values kept raw so `${{ }}` can be detected later. */
+export type EnvBlock = Record<string, string>;
+
 /** A single step inside a job. */
 export type WorkflowStep = {
   /** Display name: explicit `name`, else the action reference, else the first `run` line. */
@@ -52,6 +55,8 @@ export type WorkflowStep = {
   condition?: string;
   /** True when the step declares `continue-on-error`. */
   continueOnError: boolean;
+  /** Step-level `env:`, which layers over the job's and the workflow's. */
+  env?: EnvBlock;
   range?: SourceRange;
 };
 
@@ -83,6 +88,10 @@ export type WorkflowJob = {
   uses?: string;
   /** Matrix summary when `strategy.matrix` is present. */
   matrix?: WorkflowMatrix;
+  /** Job-level `env:`, available to the job's steps but not to its own `if:`. */
+  env?: EnvBlock;
+  /** Output names the job declares, used to tell an absent output from an unknown one. */
+  outputs: string[];
   steps: WorkflowStep[];
   range?: SourceRange;
 };
@@ -97,6 +106,8 @@ export type WorkflowDiagnostic = {
 export type WorkflowModel = {
   /** `name:` when set. */
   name?: string;
+  /** Workflow-level `env:`. */
+  env?: EnvBlock;
   triggers: WorkflowTrigger[];
   jobs: WorkflowJob[];
   /** Non-fatal problems: unknown shapes, unresolved `needs`, and so on. */

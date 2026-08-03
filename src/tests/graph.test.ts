@@ -117,8 +117,8 @@ describe("buildGraph card grouping", () => {
 
   it("carries steps only when steps are enabled", () => {
     expect(graphOf("simple.yml").cards[0]?.rows[0]?.steps).toEqual([
-      { name: "actions/checkout@v5", kind: "uses", conditional: false },
-      { name: "Build", kind: "run", conditional: false },
+      { name: "actions/checkout@v5", kind: "uses", conditional: false, state: "run" },
+      { name: "Build", kind: "run", conditional: false, state: "run" },
     ]);
     expect(graphOf("simple.yml", { showSteps: false }).cards[0]?.rows[0]?.steps).toEqual([]);
   });
@@ -301,5 +301,25 @@ describe("buildGraph simulation", () => {
       simulation: { event: "workflow_dispatch", inputs: { deploy: true } },
     });
     expect(on.cards[0]?.rows[0]?.state).toBe("run");
+  });
+});
+
+describe("buildGraph step states", () => {
+  it("carries each step's simulated state onto its row", () => {
+    const source = [
+      "on: [push, pull_request]",
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - run: always",
+      "      - run: push-only",
+      "        if: github.event_name == 'push'",
+    ].join("\n");
+
+    const onPush = graphOfText(source, { simulation: { event: "push", inputs: {} } });
+    expect(onPush.cards[0]?.rows[0]?.steps.map((step) => step.state)).toEqual(["run", "run"]);
+
+    const onPr = graphOfText(source, { simulation: { event: "pull_request", inputs: {} } });
+    expect(onPr.cards[0]?.rows[0]?.steps.map((step) => step.state)).toEqual(["run", "skipped"]);
   });
 });

@@ -436,6 +436,91 @@ export function evaluateCondition(
   }
 }
 
+/** The dotted path a node spells out, or undefined when it is not a plain path. */
+function pathOf(node: ExpressionNode): string | undefined {
+  if (node.kind === "context") {
+    return node.name;
+  }
+  if (node.kind === "property") {
+    const parent = pathOf(node.target);
+    return parent == null ? undefined : `${parent}.${node.name}`;
+  }
+  if (node.kind === "index" && node.index.kind === "literal") {
+    const parent = pathOf(node.target);
+    const key = node.index.value;
+    return parent == null || typeof key !== "string" ? undefined : `${parent}.${key}`;
+  }
+  return undefined;
+}
+
+/**
+ * Context paths in an expression that the given contexts cannot resolve.
+ *
+ * Walks the AST collecting every dotted path whose value comes back UNKNOWN — the
+ * `secrets.TOKEN` and `steps.build.outputs.sha` a workflow's conditions depend on.
+ * These are exactly the values worth offering the user to pin, and reporting the
+ * longest resolvable path keeps the list short: `secrets.TOKEN`, not `secrets`.
+ */
+export function unresolvedReferences(condition: string, contexts: EvaluationContexts): string[] {
+  const found = new Set<string>();
+
+  const walk = (node: ExpressionNode): void => {
+    const path = pathOf(node);
+    if (path != null) {
+      if (isUnknown(evaluateNode(node, contexts))) {
+        // Only record the full path; the parent that also reads unknown is noise.
+        found.add(path);
+      }
+      return;
+    }
+    switch (node.kind) {
+      case "property":
+      case "filter":
+        walk(node.target);
+        break;
+      case "index":
+        walk(node.target);
+        walk(node.index);
+        break;
+      case "call":
+        for (const argument of node.args) {
+          walk(argument);
+        }
+        break;
+      case "unary":
+        walk(node.operand);
+        break;
+      case "binary":
+        walk(node.left);
+        walk(node.right);
+        break;
+      case "context":
+      case "literal":
+        break;
+      default:
+        break;
+    }
+  };
+
+  try {
+    const template = parseTemplate(condition.trim());
+    if (template == null) {
+      walk(parseExpression(condition.trim()));
+    } else {
+      for (const part of template) {
+        if (part.kind === "expression") {
+          walk(part.node);
+        }
+      }
+    }
+  } catch {
+    // A condition that does not parse has no references worth offering.
+    return [];
+  }
+
+  return [...found];
+}
+
 /** Evaluates a bare expression, for tests and for interpolating display strings. */
 export function evaluate(source: string, contexts: EvaluationContexts): ExprValue {
   return evaluateNode(parseExpression(source), contexts);

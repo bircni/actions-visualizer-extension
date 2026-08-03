@@ -9,13 +9,21 @@
 
 import {
   PartialRecord,
+  UNKNOWN,
   evaluateCondition,
+  unresolvedReferences,
   type EvaluationContexts,
   type ExprValue,
 } from "./expression/evaluate.js";
-import type { WorkflowInput, WorkflowModel, WorkflowTrigger } from "./model.js";
+import type {
+  EnvBlock,
+  WorkflowInput,
+  WorkflowJob,
+  WorkflowModel,
+  WorkflowTrigger,
+} from "./model.js";
 
-/** Whether a job would run for the simulated event. */
+/** Whether a job or step would run for the simulated event. */
 export type JobState = "run" | "skipped" | "unknown";
 
 /** The event and inputs currently being simulated. */
@@ -29,12 +37,19 @@ export type Simulation = {
   ref?: string | undefined;
   /** Values for `inputs.*`, keyed by input name. */
   inputs: Record<string, string | boolean | number>;
+  /**
+   * Values the user pinned for context paths the preview cannot resolve, keyed by
+   * full path (`secrets.TOKEN`, `needs.build.outputs.sha`).
+   */
+  pinned?: Record<string, string>;
 };
 
 export type JobSimulation = {
   state: JobState;
   /** Why the job is in this state, shown as a tooltip. */
   reason?: string;
+  /** State of each of the job's steps, in declaration order. */
+  steps: JobState[];
 };
 
 /** A ref the user can pick for the simulated event, derived from the `on:` filters. */
@@ -106,6 +121,41 @@ function refName(ref: string): string {
 }
 
 /**
+ * Resolves an `env:` block into context values.
+ *
+ * A value containing `${{ }}` is only known once the run is under way, so it
+ * becomes UNKNOWN rather than the literal template text.
+ */
+function resolveEnv(...blocks: (EnvBlock | undefined)[]): Record<string, ExprValue> {
+  const resolved: Record<string, ExprValue> = {};
+  for (const block of blocks) {
+    for (const [key, value] of Object.entries(block ?? {})) {
+      resolved[key] = value.includes("${{") ? UNKNOWN : value;
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Which contexts GitHub makes available where.
+ *
+ * A job-level `if:` can only see `github`, `needs`, `vars` and `inputs`. A
+ * step-level `if:` additionally sees `env`, `matrix`, `job`, `runner`, `steps`
+ * and `strategy`. Modelling that is what stops `env.FOO` in a job `if:` from
+ * quietly evaluating against a value the runner would never have supplied.
+ */
+export type ConditionScope = "job" | "step";
+
+/** Contexts a job-level `if:` may reference, per GitHub's availability table. */
+export const JOB_CONTEXTS = ["github", "needs", "vars", "inputs"] as const;
+
+export type ContextOptions = {
+  scope: ConditionScope;
+  /** The job the condition belongs to, for `env` and `needs` shaping. */
+  job?: WorkflowJob;
+};
+
+/**
  * Builds the expression contexts for the simulation.
  *
  * `github` is a {@link PartialRecord} on purpose: a property we did not model is
@@ -113,7 +163,12 @@ function refName(ref: string): string {
  * to false. `inputs` is a plain object because we know every declared input, so a
  * reference to an undeclared one really is absent.
  */
-export function buildContexts(model: WorkflowModel, simulation: Simulation): EvaluationContexts {
+export function buildContexts(
+  model: WorkflowModel,
+  simulation: Simulation,
+  options?: ContextOptions,
+): EvaluationContexts {
+  const scope = options?.scope ?? "job";
   const inputs = withInputDefaults(model, simulation);
   const github: Record<string, ExprValue> = {};
   if (simulation.event != null) {
@@ -128,7 +183,82 @@ export function buildContexts(model: WorkflowModel, simulation: Simulation): Eva
   // and plenty of real workflows still use it.
   github["event"] = new PartialRecord({ inputs });
 
-  return { github: new PartialRecord(github), inputs };
+  // `needs.<job>` exposes the declared outputs: a name the job declares is unknown
+  // until it runs, but a name it never declares is genuinely absent.
+  const needs: Record<string, ExprValue> = {};
+  for (const job of model.jobs) {
+    const outputs: Record<string, ExprValue> = {};
+    for (const output of job.outputs) {
+      outputs[output] = UNKNOWN;
+    }
+    needs[job.id] = { outputs, result: UNKNOWN };
+  }
+
+  const contexts: EvaluationContexts = {
+    github: new PartialRecord(github),
+    inputs,
+    needs,
+    // `vars` is repository configuration we cannot see, so every lookup is unknown.
+    vars: new PartialRecord({}),
+    secrets: new PartialRecord({}),
+  };
+
+  if (scope === "step") {
+    contexts["env"] = new PartialRecord(resolveEnv(model.env, options?.job?.env));
+    contexts["job"] = new PartialRecord({});
+    contexts["runner"] = new PartialRecord({});
+    contexts["steps"] = new PartialRecord({});
+    contexts["strategy"] = new PartialRecord({});
+    contexts["matrix"] = new PartialRecord({});
+  }
+
+  applyPinned(contexts, simulation.pinned ?? {});
+  return contexts;
+}
+
+/**
+ * Applies the values the user pinned for things the simulation cannot know.
+ *
+ * A pin is a full context path such as `secrets.TOKEN` or
+ * `steps.build.outputs.sha`, so it has to be woven into the nested
+ * {@link PartialRecord} tree rather than set as one flat key. Merging in place
+ * keeps everything else about the context unknown.
+ */
+function applyPinned(contexts: EvaluationContexts, pinned: Record<string, string>): void {
+  for (const [path, value] of Object.entries(pinned)) {
+    const segments = path.split(".").filter((segment) => segment.length > 0);
+    const root = segments.shift();
+    if (root == null || segments.length === 0) {
+      continue;
+    }
+
+    let record = contexts[root];
+    if (!(record instanceof PartialRecord)) {
+      record = new PartialRecord({});
+      contexts[root] = record;
+    }
+
+    let current: PartialRecord = record;
+    while (segments.length > 1) {
+      const segment = segments.shift();
+      if (segment == null) {
+        break;
+      }
+      const existing = current.properties[segment];
+      if (existing instanceof PartialRecord) {
+        current = existing;
+      } else {
+        const next = new PartialRecord({});
+        current.properties[segment] = next;
+        current = next;
+      }
+    }
+
+    const leaf = segments[0];
+    if (leaf != null) {
+      current.properties[leaf] = value;
+    }
+  }
 }
 
 /**
@@ -145,38 +275,40 @@ function overridesDependencySkip(condition: string | undefined): boolean {
 }
 
 /**
- * Evaluates every job's `if:` and propagates skips along `needs:` edges.
- * Returns a state per job id.
+ * Evaluates every job's and step's `if:` and propagates skips along `needs:` edges.
  */
 export function simulateJobs(
   model: WorkflowModel,
   simulation: Simulation,
 ): Map<string, JobSimulation> {
-  const contexts = buildContexts(model, simulation);
+  const jobContexts = buildContexts(model, simulation, { scope: "job" });
   const results = new Map<string, JobSimulation>();
 
   // Pass 1: each job's own condition.
   for (const job of model.jobs) {
     if (job.condition == null) {
-      results.set(job.id, { state: "run" });
+      results.set(job.id, { state: "run", steps: simulateSteps(model, simulation, job) });
       continue;
     }
-    const evaluation = evaluateCondition(job.condition, contexts);
+    const evaluation = evaluateCondition(job.condition, jobContexts);
+    const steps = simulateSteps(model, simulation, job);
     if (evaluation.error != null) {
       results.set(job.id, {
         state: "unknown",
         reason: `Could not evaluate \`if:\` — ${evaluation.error}`,
+        steps,
       });
       continue;
     }
     if (evaluation.result === "true") {
-      results.set(job.id, { state: "run" });
+      results.set(job.id, { state: "run", steps });
     } else if (evaluation.result === "false") {
-      results.set(job.id, { state: "skipped", reason: `\`if:\` is false for this event` });
+      results.set(job.id, { state: "skipped", reason: "`if:` is false for this event", steps });
     } else {
       results.set(job.id, {
         state: "unknown",
         reason: "`if:` depends on something only a real run knows",
+        steps,
       });
     }
   }
@@ -206,6 +338,7 @@ export function simulateJobs(
         const upstream = results.get(need);
         if (upstream?.state === "skipped") {
           results.set(job.id, {
+            ...current,
             state: "skipped",
             reason: `\`${need}\` is skipped, so this job is too`,
           });
@@ -214,6 +347,7 @@ export function simulateJobs(
         }
         if (upstream?.state === "unknown" && current.state === "run") {
           results.set(job.id, {
+            ...current,
             state: "unknown",
             reason: `depends on \`${need}\`, which may not run`,
           });
@@ -225,4 +359,55 @@ export function simulateJobs(
   }
 
   return results;
+}
+
+/**
+ * Evaluates each step's `if:`.
+ *
+ * Steps get a wider set of contexts than the job's own condition does — `env`,
+ * `matrix`, `steps` and friends only exist once the job is running.
+ */
+function simulateSteps(model: WorkflowModel, simulation: Simulation, job: WorkflowJob): JobState[] {
+  if (job.steps.length === 0) {
+    return [];
+  }
+  const contexts = buildContexts(model, simulation, { scope: "step", job });
+  return job.steps.map((step) => {
+    if (step.condition == null) {
+      return "run";
+    }
+    const evaluation = evaluateCondition(step.condition, contexts);
+    if (evaluation.result === "true") {
+      return "run";
+    }
+    return evaluation.result === "false" ? "skipped" : "unknown";
+  });
+}
+
+/**
+ * Context paths the workflow references that the simulation cannot resolve.
+ *
+ * These are what the user can pin: every `secrets.*`, `vars.*` and step or job
+ * output a condition depends on. Returned sorted so the UI order is stable.
+ */
+export function unresolvedPaths(model: WorkflowModel, simulation: Simulation): string[] {
+  const contexts = buildContexts(model, simulation, { scope: "step" });
+  const paths = new Set<string>();
+
+  const collect = (condition: string | undefined): void => {
+    if (condition == null) {
+      return;
+    }
+    for (const path of unresolvedReferences(condition, contexts)) {
+      paths.add(path);
+    }
+  };
+
+  for (const job of model.jobs) {
+    collect(job.condition);
+    for (const step of job.steps) {
+      collect(step.condition);
+    }
+  }
+  return [...paths].toSorted();
 }

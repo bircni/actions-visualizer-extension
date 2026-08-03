@@ -353,7 +353,17 @@
     opacity: 0.85;
   }
 
-  .row-step.conditional {
+  /* A step that would not run is dimmed the same way a skipped job is. */
+  .row-step.step-skipped,
+  .step-marker.step-skipped {
+    opacity: 0.45;
+  }
+
+  .row-step.step-skipped {
+    text-decoration: line-through;
+  }
+
+  .row-step.step-unknown {
     fill: var(--warning);
   }
 
@@ -753,12 +763,15 @@
           y += STEP_HEIGHT;
           var step = row.steps[i];
           var marker = step.kind === "run" ? "▸" : step.kind === "uses" ? "◆" : "•";
-          group.appendChild(text(marker, { x: titleX, y: y - 5 }, "step-marker"));
+          var stepState = step.state || "run";
+          group.appendChild(
+            text(marker, { x: titleX, y: y - 5 }, "step-marker step-" + stepState),
+          );
           group.appendChild(
             text(
               fit(step.name, card.width - titleX - PADDING_X - 16),
               { x: titleX + 14, y: y - 5 },
-              "row-step" + (step.conditional ? " conditional" : ""),
+              "row-step step-" + stepState,
             ),
           );
         }
