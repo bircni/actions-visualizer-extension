@@ -404,4 +404,45 @@ test.describe("workflow graph webview", () => {
     // Typing in the form must not zoom the graph.
     expect(await scaleOf(page)).toBeCloseTo(fitted, 5);
   });
+
+  test("offers a field for each unresolved value and reports it", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "gated");
+    await resetPosted(page);
+
+    await expect(page.locator("#simulation .field.pin")).toHaveCount(1);
+    await expect(page.locator("#simulation .field.pin .name")).toHaveText("secrets.DEPLOY_KEY");
+
+    await page.locator("#simulation .field.pin input").fill("abc123");
+    await page.locator("#simulation .field.pin input").blur();
+    expect(await page.evaluate(() => window.__posted)).toContainEqual({
+      type: "setPin",
+      name: "secrets.DEPLOY_KEY",
+      input: "abc123",
+    });
+  });
+
+  test("clears a pinned value from its own button", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "gated");
+    await expect(page.locator(".clear-pin")).toHaveCount(0);
+
+    await sendGraph(page, "gatedPinned");
+    await resetPosted(page);
+    await page.locator(".clear-pin").click();
+    // Clearing sends no value at all, which is how the host tells it apart from
+    // pinning the empty string.
+    expect(await page.evaluate(() => window.__posted)).toContainEqual({
+      type: "setPin",
+      name: "secrets.DEPLOY_KEY",
+    });
+  });
+
+  test("dims steps that would not run", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "stepConditions");
+    await expect(page.locator(".row-step")).toHaveCount(2);
+    await expect(page.locator(".row-step.step-skipped")).toHaveCount(1);
+    await expect(page.locator(".row-step.step-run")).toHaveCount(1);
+  });
 });

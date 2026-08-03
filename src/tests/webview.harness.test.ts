@@ -14,6 +14,7 @@ import { parseWorkflow } from "../workflow/parse.js";
 import {
   inputsFor,
   refChoicesFor,
+  unresolvedPaths,
   withInputDefaults,
   type Simulation,
 } from "../workflow/simulate.js";
@@ -33,7 +34,12 @@ type Payload = { graph: PositionedGraph; simulation: SimulationView };
 /** Builds the exact `graph` message the host would post for a fixture. */
 function payload(
   name: string,
-  options: { event?: string; expanded?: string[]; inputs?: Simulation["inputs"] } = {},
+  options: {
+    event?: string;
+    expanded?: string[];
+    inputs?: Simulation["inputs"];
+    pinned?: Record<string, string>;
+  } = {},
 ): Payload {
   const text = fs.readFileSync(path.join(FIXTURE_DIR, name), "utf8");
   const model = parseWorkflow(text);
@@ -43,6 +49,7 @@ function payload(
     event,
     ref: refChoicesFor(trigger)[0]?.ref,
     inputs: options.inputs ?? {},
+    pinned: options.pinned ?? {},
   };
   const expanded = options.expanded ?? [];
   const graph = buildGraph(model, { ...DEFAULTS, simulation, expanded });
@@ -54,6 +61,15 @@ function payload(
       refChoices: refChoicesFor(trigger),
       inputs: inputsFor(model, event),
       values: withInputDefaults(model, simulation),
+      // Mirrors the controller: a pinned path stays listed even though it now
+      // resolves, so its field does not vanish as soon as it is filled in.
+      pinnable: [
+        ...new Set([
+          ...unresolvedPaths(model, simulation),
+          ...Object.keys(simulation.pinned ?? {}),
+        ]),
+      ].toSorted(),
+      pinned: simulation.pinned ?? {},
     },
   };
 }
@@ -411,5 +427,57 @@ describe("webview interaction", () => {
     harness.sendGraph(payload("fan-out.yml"));
     harness.send({ type: "exportResult", success: false, error: "disk full" });
     expect(harness.document.querySelector("#message")?.textContent).toBe("disk full");
+  });
+});
+
+describe("webview pinning", () => {
+  it("offers a field for each value the preview cannot resolve", () => {
+    harness = mount();
+    harness.sendGraph(payload("unknown-condition.yml"));
+    const fields = [...harness.document.querySelectorAll("#simulation .field.pin")];
+    expect(fields.map((f) => f.querySelector(".name")?.textContent)).toEqual([
+      "secrets.DEPLOY_KEY",
+    ]);
+    expect(harness.document.querySelector("#simulation")?.className).toBe("visible");
+  });
+
+  it("reports a pinned value to the host", () => {
+    harness = mount();
+    harness.sendGraph(payload("unknown-condition.yml"));
+    const control = harness.document.querySelector("#simulation .field.pin input");
+    const { window } = harness.dom;
+    if (control) {
+      control.value = "abc123";
+      control.dispatchEvent(new window.Event("change", { bubbles: true }));
+    }
+    expect(harness.posted).toContainEqual({
+      type: "setPin",
+      name: "secrets.DEPLOY_KEY",
+      input: "abc123",
+    });
+  });
+
+  it("shows a clear button only once a value is pinned", () => {
+    harness = mount();
+    harness.sendGraph(payload("unknown-condition.yml"));
+    expect(harness.document.querySelectorAll(".clear-pin")).toHaveLength(0);
+
+    harness.sendGraph(
+      payload("unknown-condition.yml", { pinned: { "secrets.DEPLOY_KEY": "abc" } }),
+    );
+    const clear = harness.document.querySelector(".clear-pin");
+    expect(clear).toBeTruthy();
+    clear?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    // Clearing sends no value, which is how the host tells it apart from an empty pin.
+    expect(harness.posted).toContainEqual({ type: "setPin", name: "secrets.DEPLOY_KEY" });
+  });
+
+  it("dims the steps that would not run", () => {
+    harness = mount();
+    harness.sendGraph(
+      payload("step-conditions.yml", { event: "pull_request", expanded: ["row:a"] }),
+    );
+    expect(harness.document.querySelectorAll(".row-step.step-skipped")).toHaveLength(1);
+    expect(harness.document.querySelectorAll(".row-step.step-run")).toHaveLength(1);
   });
 });

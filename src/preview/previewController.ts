@@ -13,6 +13,7 @@ import {
   defaultInputValue,
   inputsFor,
   refChoicesFor,
+  unresolvedPaths,
   withInputDefaults,
   type RefChoice,
   type Simulation,
@@ -31,7 +32,7 @@ export type WebviewHostMessage = {
   direction?: string;
   /** Event name for `setEvent`, or ref for `setRef`. */
   value?: string;
-  /** Input name for `setInput`. */
+  /** Input name for `setInput`, or context path for `setPin`. */
   name?: string;
   /** Input value for `setInput`. */
   input?: string | boolean | number;
@@ -46,6 +47,13 @@ export type SimulationView = {
   refChoices: RefChoice[];
   inputs: WorkflowInput[];
   values: Record<string, string | boolean | number>;
+  /**
+   * Context paths the workflow's conditions depend on that the preview cannot
+   * resolve, plus any the user has already pinned. Pinned paths stay listed so
+   * the field does not vanish the moment it resolves.
+   */
+  pinnable: string[];
+  pinned: Record<string, string>;
 };
 
 /** Messages the host sends to the webview. */
@@ -142,12 +150,18 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
 
   const simulationView = (model: WorkflowModel): SimulationView => {
     const trigger = model.triggers.find((candidate) => candidate.event === simulation.event);
+    const pinned = simulation.pinned ?? {};
+    const pinnable = [
+      ...new Set([...unresolvedPaths(model, simulation), ...Object.keys(pinned)]),
+    ].toSorted();
     return {
       ...(simulation.event == null ? {} : { event: simulation.event }),
       ...(simulation.ref == null ? {} : { ref: simulation.ref }),
       refChoices: refChoicesFor(trigger),
       inputs: inputsFor(model, simulation.event),
       values: withInputDefaults(model, simulation),
+      pinnable,
+      pinned,
     };
   };
 
@@ -250,6 +264,28 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
     await render();
   };
 
+  /**
+   * Pins a value for a context path the simulation cannot resolve. An empty value
+   * is a meaningful pin — `secrets.X == ''` is a real condition — so a pin is only
+   * removed when the webview sends no value at all.
+   */
+  const setPin = async (
+    path: string | undefined,
+    value: string | boolean | number | undefined,
+  ): Promise<void> => {
+    if (path == null || path.length === 0) {
+      return;
+    }
+    const pinned = { ...simulation.pinned };
+    if (value == null) {
+      delete pinned[path];
+    } else {
+      pinned[path] = String(value);
+    }
+    simulation = { ...simulation, pinned };
+    await render();
+  };
+
   const exportSvg = async (svg: string | undefined): Promise<void> => {
     if (svg == null || svg.length === 0) {
       await deps.postMessage({
@@ -301,7 +337,7 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
       case "setEvent":
         // Changing the event invalidates the ref and the input values with it.
         simulationInitialized = true;
-        simulation = { event: message.value ?? undefined, inputs: {} };
+        simulation = { event: message.value ?? undefined, inputs: {}, pinned: {} };
         await render();
         return;
       case "setRef":
@@ -310,6 +346,9 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
         return;
       case "setInput":
         await setInput(message.name, message.input);
+        return;
+      case "setPin":
+        await setPin(message.name, message.input);
         return;
       case "revealSource":
         if (typeof message.offset === "number" && message.offset >= 0) {
