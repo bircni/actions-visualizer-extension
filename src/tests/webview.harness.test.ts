@@ -7,31 +7,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { JSDOM } from "jsdom";
 import { afterEach, describe, expect, it } from "vitest";
+import { buildGraphMessage, type GraphMessageBody } from "../preview/graphMessage.js";
 import { getInitialHtml } from "../webview/content.js";
-import { buildGraph, type BuildGraphOptions } from "../workflow/graph.js";
-import { layoutGraph, type PositionedGraph } from "../workflow/layout.js";
 import { parseWorkflow } from "../workflow/parse.js";
-import {
-  inputsFor,
-  refChoicesFor,
-  unresolvedPaths,
-  withInputDefaults,
-  type Simulation,
-} from "../workflow/simulate.js";
-import type { SimulationView } from "../preview/previewController.js";
+import { refChoicesFor, type Simulation } from "../workflow/simulate.js";
 
 const FIXTURE_DIR = path.join(process.cwd(), ".fixtures", "workflows");
 
-const DEFAULTS: Omit<BuildGraphOptions, "simulation"> = {
-  fileName: "ci.yml",
-  showSteps: true,
-  expandMatrix: false,
-  expanded: [],
-};
+type Payload = GraphMessageBody;
 
-type Payload = { graph: PositionedGraph; simulation: SimulationView };
-
-/** Builds the exact `graph` message the host would post for a fixture. */
+/**
+ * Builds the exact `graph` message the host would post, through the host's own
+ * builder — so this harness cannot drift from what the extension really sends.
+ */
 function payload(
   name: string,
   options: {
@@ -52,27 +40,14 @@ function payload(
     inputs: options.inputs ?? {},
     pinned: options.pinned ?? {},
   };
-  const expanded = options.expanded ?? [];
-  const graph = buildGraph(model, { ...DEFAULTS, simulation, expanded });
-  return {
-    graph: layoutGraph(graph, { direction: "LR", expandedRows: expanded }),
-    simulation: {
-      ...(event == null ? {} : { event }),
-      ...(simulation.ref == null ? {} : { ref: simulation.ref }),
-      refChoices: refChoicesFor(trigger),
-      inputs: inputsFor(model, event),
-      values: withInputDefaults(model, simulation),
-      // Mirrors the controller: a pinned path stays listed even though it now
-      // resolves, so its field does not vanish as soon as it is filled in.
-      pinnable: [
-        ...new Set([
-          ...unresolvedPaths(model, simulation),
-          ...Object.keys(simulation.pinned ?? {}),
-        ]),
-      ].toSorted(),
-      pinned: simulation.pinned ?? {},
-    },
-  };
+  return buildGraphMessage(model, {
+    fileName: "ci.yml",
+    showSteps: true,
+    expandMatrix: false,
+    direction: "LR",
+    simulation,
+    expanded: options.expanded ?? [],
+  }).body;
 }
 
 type DomDocument = JSDOM["window"]["document"];

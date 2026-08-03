@@ -6,16 +6,13 @@
  * the messages it posts, with no extension host in sight.
  */
 
-import { buildGraph } from "../workflow/graph.js";
-import { layoutGraph, type LayoutDirection, type PositionedGraph } from "../workflow/layout.js";
+import type { LayoutDirection, PositionedGraph } from "../workflow/layout.js";
 import { parseWorkflow } from "../workflow/parse.js";
+import { buildGraphMessage, type SimulationView } from "./graphMessage.js";
 import {
   defaultInputValue,
   inputsFor,
   refChoicesFor,
-  unresolvedPaths,
-  withInputDefaults,
-  type RefChoice,
   type Simulation,
 } from "../workflow/simulate.js";
 import type { WorkflowInput, WorkflowModel } from "../workflow/model.js";
@@ -38,22 +35,6 @@ export type WebviewHostMessage = {
   input?: string | boolean | number;
   /** Serialised SVG for `exportSvg`. */
   svg?: string;
-};
-
-/** The simulation controls rendered in the header. */
-export type SimulationView = {
-  event?: string;
-  ref?: string;
-  refChoices: RefChoice[];
-  inputs: WorkflowInput[];
-  values: Record<string, string | boolean | number>;
-  /**
-   * Context paths the workflow's conditions depend on that the preview cannot
-   * resolve, plus any the user has already pinned. Pinned paths stay listed so
-   * the field does not vanish the moment it resolves.
-   */
-  pinnable: string[];
-  pinned: Record<string, string>;
 };
 
 /** Messages the host sends to the webview. */
@@ -149,74 +130,36 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
     simulation = { ...simulation, inputs: values };
   };
 
-  const simulationView = (model: WorkflowModel): SimulationView => {
-    const trigger = model.triggers.find((candidate) => candidate.event === simulation.event);
-    const pinned = simulation.pinned ?? {};
-    const pinnable = [
-      ...new Set([...unresolvedPaths(model, simulation), ...Object.keys(pinned)]),
-    ].toSorted();
-    return {
-      ...(simulation.event == null ? {} : { event: simulation.event }),
-      ...(simulation.ref == null ? {} : { ref: simulation.ref }),
-      refChoices: refChoicesFor(trigger),
-      inputs: inputsFor(model, simulation.event),
-      values: withInputDefaults(model, simulation),
-      pinnable,
-      pinned,
-    };
-  };
-
   const render = async (): Promise<void> => {
     const settings = deps.readSettings();
     const model = parseWorkflow(deps.readText());
     reconcileSimulation(model);
 
-    const graph = buildGraph(model, {
+    // The `showSteps: expanded` setting seeds the expansion once; after that the
+    // user owns it. The builder resolves which rows those are, since it is the
+    // only place that knows how row ids are spelt.
+    const seedAll = !expandedInitialized && settings.showSteps === "expanded";
+    expandedInitialized = true;
+
+    const { body, liveExpanded } = buildGraphMessage(model, {
       fileName: fileNameOf(deps.readPath()),
       showSteps: settings.showSteps !== "never",
       expandMatrix: settings.expandMatrix,
+      direction: currentDirection(settings),
       simulation,
       expanded: [...expanded],
+      ...(seedAll ? { expandAllRows: true } : {}),
     });
 
-    if (!expandedInitialized) {
-      expandedInitialized = true;
-      if (settings.showSteps === "expanded") {
-        for (const card of graph.cards) {
-          for (const row of card.rows) {
-            if (row.steps.length > 0) {
-              expanded.add(row.id);
-            }
-          }
-        }
-      }
-    }
-    // Drop ids that no longer exist, so a renamed job does not keep the graph
-    // permanently expanded on a row that is gone.
-    const liveIds = new Set<string>();
-    for (const card of graph.cards) {
-      liveIds.add(card.id);
-      for (const row of card.rows) {
-        liveIds.add(row.id);
-      }
-    }
-    for (const id of expanded) {
-      if (!liveIds.has(id)) {
-        expanded.delete(id);
-      }
+    // Adopt what survived, so a renamed job cannot keep the graph expanded on a
+    // row that no longer exists.
+    expanded.clear();
+    for (const id of liveExpanded) {
+      expanded.add(id);
     }
 
-    const positioned = layoutGraph(graph, {
-      direction: currentDirection(settings),
-      expandedRows: [...expanded],
-    });
-    lastGraph = positioned;
-    await deps.postMessage({
-      type: "graph",
-      graph: positioned,
-      expanded: [...expanded],
-      simulation: simulationView(model),
-    });
+    lastGraph = body.graph;
+    await deps.postMessage({ type: "graph", ...body });
   };
 
   const toggleExpand = async (nodeId: string | undefined): Promise<void> => {
