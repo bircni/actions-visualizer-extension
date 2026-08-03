@@ -1,0 +1,1075 @@
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta
+  http-equiv="Content-Security-Policy"
+  content="default-src 'none'; script-src 'unsafe-inline' __CSP_SOURCE__; style-src 'unsafe-inline' __CSP_SOURCE__; font-src __CSP_SOURCE__;"
+/>
+<link rel="stylesheet" href="__CODICONS_STYLE__" />
+<title>Workflow Graph</title>
+<style>
+  :root {
+    --muted: var(--vscode-descriptionForeground, #6e7781);
+    --border: var(--vscode-panel-border, #d0d7de);
+    --card-bg: var(--vscode-editorWidget-background, #ffffff);
+    --edge: var(--vscode-descriptionForeground, #8c959f);
+    --accent: var(--vscode-textLink-foreground, #0969da);
+    --error: var(--vscode-errorForeground, #cf222e);
+    --warning: var(--vscode-editorWarning-foreground, #9a6700);
+    --ok: var(--vscode-testing-iconPassed, #1a7f37);
+    /* Kept in sync with METRICS in src/workflow/layout.ts. */
+    --row-height: 34px;
+  }
+
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size, 13px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- header ---------- */
+
+  #header {
+    flex: 0 0 auto;
+    padding: 14px 18px 10px;
+  }
+
+  #header-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  #title {
+    font-size: 1.25em;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #toolbar {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 24px;
+    padding: 0 6px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .tool:hover {
+    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+  }
+
+  .tool:focus-visible,
+  .chip:focus-visible,
+  .control:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder, var(--accent));
+    outline-offset: 1px;
+  }
+
+  #triggers {
+    margin-top: 3px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    color: var(--muted);
+  }
+
+  #triggers .label {
+    /* Mirrors GitHub's `on: pull_request` subtitle. */
+    white-space: nowrap;
+  }
+
+  .chip {
+    padding: 1px 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .chip:hover {
+    border-color: var(--border);
+  }
+
+  /*
+   * `badge-background` and `badge-foreground` are a matched pair, so the label stays
+   * readable on every theme. Mixing a background token with an unrelated foreground
+   * token is how you end up with blue-on-blue.
+   */
+  .chip.selected {
+    border-color: var(--vscode-badge-background, var(--accent));
+    background: var(--vscode-badge-background, rgba(9, 105, 218, 0.12));
+    color: var(--vscode-badge-foreground, #ffffff);
+    font-weight: 600;
+  }
+
+  #simulation {
+    margin-top: 8px;
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+  }
+
+  #simulation.visible {
+    display: flex;
+  }
+
+  .field {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--muted);
+  }
+
+  .field > .name {
+    white-space: nowrap;
+  }
+
+  .control {
+    background: var(--vscode-input-background, transparent);
+    color: var(--vscode-input-foreground, inherit);
+    border: 1px solid var(--vscode-input-border, var(--border));
+    border-radius: 4px;
+    padding: 1px 4px;
+    font: inherit;
+    max-width: 180px;
+  }
+
+  input[type="checkbox"].control {
+    padding: 0;
+    accent-color: var(--accent);
+  }
+
+  #banner {
+    flex: 0 0 auto;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0 18px 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--warning);
+    max-height: 22vh;
+    overflow-y: auto;
+  }
+
+  #banner.visible {
+    display: flex;
+  }
+
+  .banner-row {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  /* ---------- canvas ---------- */
+
+  #viewport {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+  }
+
+  #viewport.panning {
+    cursor: grabbing;
+  }
+
+  #message {
+    display: none;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    color: var(--muted);
+    white-space: pre-wrap;
+    /* Never swallow clicks meant for the graph underneath. */
+    pointer-events: none;
+  }
+
+  #message.visible {
+    display: flex;
+  }
+
+  #message.error {
+    color: var(--error);
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    user-select: none;
+  }
+
+  .edge {
+    fill: none;
+    stroke: var(--edge);
+    stroke-width: 1.5;
+    opacity: 0.75;
+  }
+
+  .edge.inactive {
+    opacity: 0.28;
+    stroke-dasharray: 4 4;
+  }
+
+  .edge.broken {
+    stroke: var(--error);
+    stroke-dasharray: 4 4;
+    opacity: 1;
+  }
+
+  .edge-dot {
+    fill: var(--edge);
+  }
+
+  .edge-dot.inactive {
+    opacity: 0.35;
+  }
+
+  .card-box {
+    fill: var(--card-bg);
+    stroke: var(--border);
+    stroke-width: 1;
+  }
+
+  .card.missing .card-box {
+    stroke: var(--error);
+    stroke-dasharray: 4 3;
+  }
+
+  .card-tab {
+    fill: var(--card-bg);
+    stroke: var(--border);
+    stroke-width: 1;
+  }
+
+  .card-tab-text {
+    fill: var(--vscode-editor-foreground);
+    font-size: 0.92em;
+  }
+
+  .row {
+    cursor: pointer;
+  }
+
+  .row-hit {
+    fill: transparent;
+  }
+
+  .row:hover .row-hit {
+    fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+  }
+
+  .row-title {
+    fill: var(--vscode-editor-foreground);
+    font-size: 1.02em;
+  }
+
+  .row-meta,
+  .row-condition {
+    fill: var(--muted);
+    font-size: 0.86em;
+  }
+
+  .row-condition {
+    font-style: italic;
+  }
+
+  /* A skipped job stays in place, dimmed, so the layout never jumps. */
+  .row.skipped {
+    opacity: 0.42;
+  }
+
+  .row.skipped .row-title {
+    text-decoration: line-through;
+  }
+
+  .state-run {
+    fill: var(--ok);
+  }
+
+  .state-skipped {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 2;
+  }
+
+  .state-unknown {
+    fill: none;
+    stroke: var(--warning);
+    stroke-width: 1.5;
+  }
+
+  .state-glyph {
+    fill: var(--vscode-editor-background, #fff);
+    font-size: 0.8em;
+    font-weight: 700;
+  }
+
+  .state-glyph.outline {
+    fill: var(--warning);
+  }
+
+  .row-step {
+    fill: var(--vscode-editor-foreground);
+    font-size: 0.86em;
+    opacity: 0.85;
+  }
+
+  .row-step.conditional {
+    fill: var(--warning);
+  }
+
+  .step-marker {
+    fill: var(--muted);
+  }
+
+  .chevron {
+    fill: var(--muted);
+    font-size: 0.8em;
+  }
+
+  #legend {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    padding: 4px 18px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.86em;
+  }
+</style>
+
+<div id="header">
+  <div id="header-top">
+    <div>
+      <div id="title">Workflow Graph</div>
+      <div id="triggers"></div>
+    </div>
+    <div id="toolbar">
+      <button class="tool" id="btn-direction" title="Toggle layout direction">
+        <span class="codicon codicon-layout"></span>
+      </button>
+      <button class="tool" id="btn-expand" title="Expand all">
+        <span class="codicon codicon-expand-all"></span>
+      </button>
+      <button class="tool" id="btn-collapse" title="Collapse all">
+        <span class="codicon codicon-collapse-all"></span>
+      </button>
+      <button class="tool" id="btn-fit" title="Fit graph to view">
+        <span class="codicon codicon-screen-normal"></span>
+      </button>
+      <button class="tool" id="btn-zoom-out" title="Zoom out">
+        <span class="codicon codicon-zoom-out"></span>
+      </button>
+      <button class="tool" id="btn-zoom-in" title="Zoom in">
+        <span class="codicon codicon-zoom-in"></span>
+      </button>
+      <button class="tool" id="btn-refresh" title="Reload from the workflow file">
+        <span class="codicon codicon-refresh"></span>
+      </button>
+    </div>
+  </div>
+  <div id="simulation"></div>
+</div>
+
+<div id="banner"></div>
+
+<div id="viewport">
+  <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+    <g id="scene"></g>
+  </svg>
+  <div id="message"></div>
+</div>
+
+<div id="legend">
+  <span>Click a job to jump to it in the YAML · Alt-click to expand</span>
+</div>
+
+<script>
+  (function () {
+    "use strict";
+
+    var SVG_NS = "http://www.w3.org/2000/svg";
+    var MIN_SCALE = 0.2;
+    var MAX_SCALE = 3;
+    var ZOOM_STEP = 1.2;
+    // Kept in sync with METRICS in src/workflow/layout.ts.
+    var ROW_HEIGHT = 34;
+    var STEP_HEIGHT = 20;
+    var CONDITION_HEIGHT = 18;
+    var TAB_HEIGHT = 26;
+    var DOT_RADIUS = 5;
+    var ELBOW_RADIUS = 10;
+    var PADDING_X = 14;
+    var ICON_SIZE = 8;
+
+    var vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : null;
+
+    var scene = document.getElementById("scene");
+    var canvas = document.getElementById("canvas");
+    var viewport = document.getElementById("viewport");
+    var messageEl = document.getElementById("message");
+    var bannerEl = document.getElementById("banner");
+    var titleEl = document.getElementById("title");
+    var triggersEl = document.getElementById("triggers");
+    var simulationEl = document.getElementById("simulation");
+
+    var state = { graph: null, scale: 1, offsetX: 0, offsetY: 0, direction: "LR" };
+
+    function post(message) {
+      if (vscode) {
+        vscode.postMessage(message);
+      }
+    }
+
+    function clear(node) {
+      while (node.firstChild) {
+        node.removeChild(node.firstChild);
+      }
+    }
+
+    function svgEl(name, attrs) {
+      var element = document.createElementNS(SVG_NS, name);
+      if (attrs) {
+        for (var key in attrs) {
+          if (Object.prototype.hasOwnProperty.call(attrs, key) && attrs[key] != null) {
+            element.setAttribute(key, String(attrs[key]));
+          }
+        }
+      }
+      return element;
+    }
+
+    function text(content, attrs, className) {
+      var element = svgEl("text", attrs);
+      if (className) {
+        element.setAttribute("class", className);
+      }
+      element.textContent = content;
+      return element;
+    }
+
+    /** Truncates to roughly the width available, since SVG text does not wrap. */
+    function fit(content, maxWidth) {
+      var maxChars = Math.max(4, Math.floor(maxWidth / 6.4));
+      return content.length <= maxChars ? content : content.slice(0, maxChars - 1) + "…";
+    }
+
+    // ---------- header ----------
+
+    function renderHeader(header, simulation) {
+      titleEl.textContent = header.title;
+      titleEl.setAttribute("title", header.fileName);
+      clear(triggersEl);
+
+      if (!header.triggers.length) {
+        return;
+      }
+      var label = document.createElement("span");
+      label.className = "label";
+      label.textContent = "on:";
+      triggersEl.appendChild(label);
+
+      for (var i = 0; i < header.triggers.length; i++) {
+        (function (trigger) {
+          var chip = document.createElement("button");
+          chip.className = "chip" + (trigger.selected ? " selected" : "");
+          chip.type = "button";
+          chip.textContent = trigger.event;
+          if (trigger.details.length) {
+            chip.setAttribute("title", trigger.details.join(" · "));
+          }
+          chip.addEventListener("click", function () {
+            post({ type: "setEvent", value: trigger.event });
+          });
+          triggersEl.appendChild(chip);
+        })(header.triggers[i]);
+      }
+
+      renderSimulation(simulation);
+    }
+
+    function field(name) {
+      var wrapper = document.createElement("label");
+      wrapper.className = "field";
+      var caption = document.createElement("span");
+      caption.className = "name";
+      caption.textContent = name;
+      wrapper.appendChild(caption);
+      return wrapper;
+    }
+
+    function renderSimulation(simulation) {
+      clear(simulationEl);
+      if (!simulation) {
+        simulationEl.className = "";
+        return;
+      }
+
+      var hasControls = false;
+
+      if (simulation.refChoices && simulation.refChoices.length > 1) {
+        hasControls = true;
+        var refField = field("ref");
+        var refSelect = document.createElement("select");
+        refSelect.className = "control";
+        for (var i = 0; i < simulation.refChoices.length; i++) {
+          var choice = simulation.refChoices[i];
+          var option = document.createElement("option");
+          option.value = choice.ref;
+          option.textContent = choice.label;
+          if (choice.ref === simulation.ref) {
+            option.selected = true;
+          }
+          refSelect.appendChild(option);
+        }
+        refSelect.addEventListener("change", function () {
+          post({ type: "setRef", value: refSelect.value });
+        });
+        refField.appendChild(refSelect);
+        simulationEl.appendChild(refField);
+      }
+
+      var inputs = simulation.inputs || [];
+      for (var j = 0; j < inputs.length; j++) {
+        hasControls = true;
+        simulationEl.appendChild(inputControl(inputs[j], simulation.values[inputs[j].name]));
+      }
+
+      simulationEl.className = hasControls ? "visible" : "";
+    }
+
+    function inputControl(input, value) {
+      var wrapper = field(input.name);
+      if (input.description) {
+        wrapper.setAttribute("title", input.description);
+      }
+      var control;
+
+      if (input.type === "boolean") {
+        control = document.createElement("input");
+        control.type = "checkbox";
+        control.className = "control";
+        control.checked = value === true || value === "true";
+        control.addEventListener("change", function () {
+          post({ type: "setInput", name: input.name, input: control.checked });
+        });
+      } else if (input.type === "choice" && input.options && input.options.length) {
+        control = document.createElement("select");
+        control.className = "control";
+        for (var i = 0; i < input.options.length; i++) {
+          var option = document.createElement("option");
+          option.value = input.options[i];
+          option.textContent = input.options[i];
+          if (input.options[i] === String(value)) {
+            option.selected = true;
+          }
+          control.appendChild(option);
+        }
+        control.addEventListener("change", function () {
+          post({ type: "setInput", name: input.name, input: control.value });
+        });
+      } else {
+        control = document.createElement("input");
+        control.type = input.type === "number" ? "number" : "text";
+        control.className = "control";
+        control.value = value == null ? "" : String(value);
+        control.addEventListener("change", function () {
+          post({ type: "setInput", name: input.name, input: control.value });
+        });
+      }
+
+      wrapper.appendChild(control);
+      return wrapper;
+    }
+
+    function renderBanner(warnings) {
+      clear(bannerEl);
+      if (!warnings || !warnings.length) {
+        bannerEl.className = "";
+        return;
+      }
+      bannerEl.className = "visible";
+      for (var i = 0; i < warnings.length; i++) {
+        var row = document.createElement("div");
+        row.className = "banner-row";
+        var icon = document.createElement("span");
+        icon.className = "codicon codicon-warning";
+        var label = document.createElement("span");
+        label.textContent = warnings[i];
+        row.appendChild(icon);
+        row.appendChild(label);
+        bannerEl.appendChild(row);
+      }
+    }
+
+    // ---------- graph ----------
+
+    /** Orthogonal path with rounded corners through the elbow points. */
+    function edgePath(points) {
+      if (!points.length) {
+        return "";
+      }
+      if (points.length === 2) {
+        return "M " + points[0].x + " " + points[0].y + " L " + points[1].x + " " + points[1].y;
+      }
+      var d = "M " + points[0].x + " " + points[0].y;
+      for (var i = 1; i < points.length - 1; i++) {
+        var previous = points[i - 1];
+        var corner = points[i];
+        var next = points[i + 1];
+        var inLength = Math.hypot(corner.x - previous.x, corner.y - previous.y);
+        var outLength = Math.hypot(next.x - corner.x, next.y - corner.y);
+        var radius = Math.min(ELBOW_RADIUS, inLength / 2, outLength / 2);
+        if (radius <= 0.5) {
+          d += " L " + corner.x + " " + corner.y;
+          continue;
+        }
+        var enterX = corner.x - ((corner.x - previous.x) / inLength) * radius;
+        var enterY = corner.y - ((corner.y - previous.y) / inLength) * radius;
+        var exitX = corner.x + ((next.x - corner.x) / outLength) * radius;
+        var exitY = corner.y + ((next.y - corner.y) / outLength) * radius;
+        d += " L " + enterX + " " + enterY;
+        d += " Q " + corner.x + " " + corner.y + " " + exitX + " " + exitY;
+      }
+      var last = points[points.length - 1];
+      return d + " L " + last.x + " " + last.y;
+    }
+
+    function stateIcon(row, x, y) {
+      var group = svgEl("g");
+      group.appendChild(
+        svgEl("circle", { class: "state-" + row.state, cx: x, cy: y, r: ICON_SIZE }),
+      );
+      if (row.state === "run") {
+        // A check mark, drawn rather than typed so it lines up at any font size.
+        group.appendChild(
+          svgEl("path", {
+            class: "state-glyph",
+            fill: "none",
+            stroke: "var(--vscode-editor-background, #fff)",
+            "stroke-width": 1.8,
+            "stroke-linecap": "round",
+            "stroke-linejoin": "round",
+            d:
+              "M " + (x - 3.6) + " " + y + " L " + (x - 1) + " " + (y + 2.6) +
+              " L " + (x + 3.8) + " " + (y - 2.6),
+          }),
+        );
+      } else if (row.state === "unknown") {
+        var glyph = text("?", { x: x, y: y + 3.2 }, "state-glyph outline");
+        glyph.setAttribute("text-anchor", "middle");
+        group.appendChild(glyph);
+      }
+      return group;
+    }
+
+    function renderRow(row, card) {
+      var group = svgEl("g", { transform: "translate(0," + row.offsetY + ")" });
+      group.setAttribute("class", "row " + row.state);
+      group.setAttribute("data-row-id", row.id);
+      group.setAttribute("data-node-id", row.id);
+
+      group.appendChild(
+        svgEl("rect", { class: "row-hit", x: 1, y: 0, width: card.width - 2, height: row.height, rx: 5 }),
+      );
+
+      var centerY = ROW_HEIGHT / 2;
+      group.appendChild(stateIcon(row, PADDING_X + ICON_SIZE, centerY));
+
+      // The chevron sits in its own gutter so it never collides with the meta text.
+      var chevronGutter = row.expandable ? 16 : 0;
+      var metaRight = card.width - PADDING_X - chevronGutter;
+      var metaWidth = row.meta ? Math.min(row.meta.length * 6.2 + 8, 130) : 0;
+      var titleX = PADDING_X + ICON_SIZE * 2 + 10;
+      var titleWidth = metaRight - titleX - metaWidth - 8;
+      group.appendChild(text(fit(row.title, titleWidth), { x: titleX, y: centerY + 4 }, "row-title"));
+
+      if (row.meta) {
+        var meta = text(fit(row.meta, metaWidth), { x: metaRight, y: centerY + 4 }, "row-meta");
+        meta.setAttribute("text-anchor", "end");
+        group.appendChild(meta);
+      }
+
+      if (row.expandable) {
+        var chevron = text(
+          row.expanded ? "▾" : "▸",
+          { x: card.width - PADDING_X + 4, y: centerY + 4 },
+          "chevron",
+        );
+        chevron.setAttribute("text-anchor", "end");
+        group.appendChild(chevron);
+      }
+
+      if (row.expanded) {
+        var y = ROW_HEIGHT;
+        if (row.condition) {
+          y += CONDITION_HEIGHT - 4;
+          group.appendChild(
+            text(fit("if: " + row.condition, card.width - titleX - PADDING_X), { x: titleX, y: y }, "row-condition"),
+          );
+          y += 4;
+        }
+        for (var i = 0; i < row.steps.length; i++) {
+          y += STEP_HEIGHT;
+          var step = row.steps[i];
+          var marker = step.kind === "run" ? "▸" : step.kind === "uses" ? "◆" : "•";
+          group.appendChild(text(marker, { x: titleX, y: y - 5 }, "step-marker"));
+          group.appendChild(
+            text(
+              fit(step.name, card.width - titleX - PADDING_X - 16),
+              { x: titleX + 14, y: y - 5 },
+              "row-step" + (step.conditional ? " conditional" : ""),
+            ),
+          );
+        }
+      }
+
+      var tooltip = svgEl("title");
+      tooltip.textContent = row.reason ? row.title + " — " + row.reason : row.title;
+      group.appendChild(tooltip);
+      return group;
+    }
+
+    function renderCard(card) {
+      var group = svgEl("g", { transform: "translate(" + card.x + "," + card.y + ")" });
+      group.setAttribute("class", "card " + card.kind);
+      group.setAttribute("data-card-id", card.id);
+
+      if (card.tab) {
+        // GitHub draws the matrix label as a tab attached to the top of the card.
+        var tabWidth = Math.min(card.tab.length * 7 + 24, card.width - 20);
+        group.appendChild(
+          svgEl("path", {
+            class: "card-tab",
+            d:
+              "M 6 0 L 6 " + (-TAB_HEIGHT + 6) +
+              " Q 6 " + -TAB_HEIGHT + " 12 " + -TAB_HEIGHT +
+              " L " + (tabWidth - 6) + " " + -TAB_HEIGHT +
+              " Q " + tabWidth + " " + -TAB_HEIGHT + " " + tabWidth + " " + (-TAB_HEIGHT + 6) +
+              " L " + tabWidth + " 0 Z",
+          }),
+        );
+        group.appendChild(text(card.tab, { x: 16, y: -TAB_HEIGHT + 17 }, "card-tab-text"));
+      }
+
+      group.appendChild(
+        svgEl("rect", { class: "card-box", width: card.width, height: card.height, rx: 10, ry: 10 }),
+      );
+
+      for (var i = 0; i < card.rows.length; i++) {
+        group.appendChild(renderRow(card.rows[i], card));
+      }
+      return group;
+    }
+
+    function render(graph, simulation) {
+      state.graph = graph;
+      state.direction = graph.direction;
+      renderHeader(graph.header, simulation);
+      renderBanner(graph.warnings);
+      clear(scene);
+
+      if (graph.error) {
+        showMessage(graph.error, true);
+        return;
+      }
+      if (!graph.cards.length) {
+        showMessage("Nothing to visualize yet.", false);
+        return;
+      }
+      hideMessage();
+
+      var edgeLayer = svgEl("g");
+      for (var e = 0; e < graph.edges.length; e++) {
+        var edge = graph.edges[e];
+        var className = "edge" + (edge.inactive ? " inactive" : "") + (edge.broken ? " broken" : "");
+        edgeLayer.appendChild(svgEl("path", { class: className, d: edgePath(edge.points) }));
+        var dotClass = "edge-dot" + (edge.inactive ? " inactive" : "");
+        edgeLayer.appendChild(
+          svgEl("circle", { class: dotClass, cx: edge.from_point.x, cy: edge.from_point.y, r: DOT_RADIUS }),
+        );
+        edgeLayer.appendChild(
+          svgEl("circle", { class: dotClass, cx: edge.to_point.x, cy: edge.to_point.y, r: DOT_RADIUS }),
+        );
+      }
+      scene.appendChild(edgeLayer);
+
+      var cardLayer = svgEl("g");
+      for (var c = 0; c < graph.cards.length; c++) {
+        cardLayer.appendChild(renderCard(graph.cards[c]));
+      }
+      scene.appendChild(cardLayer);
+    }
+
+    // ---------- view ----------
+
+    function applyTransform() {
+      scene.setAttribute(
+        "transform",
+        "translate(" + state.offsetX + "," + state.offsetY + ") scale(" + state.scale + ")",
+      );
+    }
+
+    function setScale(next, originX, originY) {
+      var clamped = Math.min(Math.max(next, MIN_SCALE), MAX_SCALE);
+      if (clamped === state.scale) {
+        return;
+      }
+      var rect = viewport.getBoundingClientRect();
+      var px = originX == null ? rect.width / 2 : originX;
+      var py = originY == null ? rect.height / 2 : originY;
+      // Keep the point under the cursor stationary while zooming.
+      var ratio = clamped / state.scale;
+      state.offsetX = px - (px - state.offsetX) * ratio;
+      state.offsetY = py - (py - state.offsetY) * ratio;
+      state.scale = clamped;
+      applyTransform();
+    }
+
+    function fitToView() {
+      if (!state.graph || !state.graph.cards.length) {
+        return;
+      }
+      var rect = viewport.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
+        return;
+      }
+      var scaleX = rect.width / Math.max(state.graph.width, 1);
+      var scaleY = rect.height / Math.max(state.graph.height, 1);
+      state.scale = Math.min(Math.max(Math.min(scaleX, scaleY), MIN_SCALE), 1);
+      // Anchor top-left the way GitHub does, rather than centring in the panel.
+      // The graph already carries its own margin, so no extra offset is needed.
+      state.offsetX = 0;
+      state.offsetY = 0;
+      applyTransform();
+    }
+
+    function showMessage(content, isError) {
+      messageEl.textContent = content;
+      messageEl.className = isError ? "visible error" : "visible";
+    }
+
+    function hideMessage() {
+      messageEl.className = "";
+    }
+
+    /** Serialises the current scene into a standalone SVG document for export. */
+    function serializeSvg() {
+      if (!state.graph || !state.graph.cards.length) {
+        return "";
+      }
+      var clone = canvas.cloneNode(true);
+      clone.setAttribute("width", String(state.graph.width));
+      clone.setAttribute("height", String(state.graph.height));
+      clone.setAttribute("viewBox", "0 0 " + state.graph.width + " " + state.graph.height);
+      var clonedScene = clone.querySelector("#scene");
+      if (clonedScene) {
+        clonedScene.removeAttribute("transform");
+      }
+      var styles = document.querySelector("style");
+      if (styles) {
+        var styleEl = document.createElementNS(SVG_NS, "style");
+        styleEl.textContent = styles.textContent;
+        clone.insertBefore(styleEl, clone.firstChild);
+      }
+      return '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
+    }
+
+    // ---------- interaction ----------
+
+    var pan = null;
+
+    viewport.addEventListener("mousedown", function (event) {
+      if (event.button !== 0) {
+        return;
+      }
+      pan = {
+        x: event.clientX,
+        y: event.clientY,
+        offsetX: state.offsetX,
+        offsetY: state.offsetY,
+        moved: false,
+      };
+      viewport.classList.add("panning");
+    });
+
+    window.addEventListener("mousemove", function (event) {
+      if (!pan) {
+        return;
+      }
+      var dx = event.clientX - pan.x;
+      var dy = event.clientY - pan.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        pan.moved = true;
+      }
+      state.offsetX = pan.offsetX + dx;
+      state.offsetY = pan.offsetY + dy;
+      applyTransform();
+    });
+
+    window.addEventListener("mouseup", function (event) {
+      if (!pan) {
+        return;
+      }
+      var wasDrag = pan.moved;
+      pan = null;
+      viewport.classList.remove("panning");
+      if (wasDrag) {
+        return;
+      }
+
+      var target = event.target;
+      while (target && target !== viewport && !(target.getAttribute && target.getAttribute("data-node-id"))) {
+        target = target.parentNode;
+      }
+      if (!target || !target.getAttribute || !target.getAttribute("data-node-id")) {
+        return;
+      }
+      var rowId = target.getAttribute("data-node-id");
+      var row = findRow(rowId);
+      if (!row) {
+        return;
+      }
+      // Alt-click expands; a plain click jumps to the YAML.
+      if (event.altKey && row.expandable) {
+        post({ type: "toggleExpand", nodeId: rowId });
+        return;
+      }
+      if (row.range) {
+        post({ type: "revealSource", offset: row.range.start, nodeId: rowId });
+      } else if (row.expandable) {
+        post({ type: "toggleExpand", nodeId: rowId });
+      }
+    });
+
+    function findRow(rowId) {
+      if (!state.graph) {
+        return null;
+      }
+      for (var c = 0; c < state.graph.cards.length; c++) {
+        var rows = state.graph.cards[c].rows;
+        for (var r = 0; r < rows.length; r++) {
+          if (rows[r].id === rowId) {
+            return rows[r];
+          }
+        }
+      }
+      return null;
+    }
+
+    viewport.addEventListener(
+      "wheel",
+      function (event) {
+        event.preventDefault();
+        var rect = viewport.getBoundingClientRect();
+        var factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+        setScale(state.scale * factor, event.clientX - rect.left, event.clientY - rect.top);
+      },
+      { passive: false },
+    );
+
+    document.getElementById("btn-zoom-in").addEventListener("click", function () {
+      setScale(state.scale * ZOOM_STEP);
+    });
+    document.getElementById("btn-zoom-out").addEventListener("click", function () {
+      setScale(state.scale / ZOOM_STEP);
+    });
+    document.getElementById("btn-fit").addEventListener("click", fitToView);
+    document.getElementById("btn-refresh").addEventListener("click", function () {
+      post({ type: "refresh" });
+    });
+    document.getElementById("btn-expand").addEventListener("click", function () {
+      post({ type: "expandAll" });
+    });
+    document.getElementById("btn-collapse").addEventListener("click", function () {
+      post({ type: "collapseAll" });
+    });
+    document.getElementById("btn-direction").addEventListener("click", function () {
+      post({ type: "setDirection", direction: state.direction === "LR" ? "TB" : "LR" });
+    });
+
+    window.addEventListener("keydown", function (event) {
+      var tag = event.target && event.target.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") {
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        setScale(state.scale * ZOOM_STEP);
+      } else if (event.key === "-") {
+        setScale(state.scale / ZOOM_STEP);
+      } else if (event.key === "0") {
+        fitToView();
+      }
+    });
+
+    window.addEventListener("message", function (event) {
+      var message = event.data;
+      if (!message || typeof message.type !== "string") {
+        return;
+      }
+      if (message.type === "graph") {
+        var isFirst = state.graph == null;
+        render(message.graph, message.simulation);
+        if (isFirst) {
+          fitToView();
+        }
+        return;
+      }
+      if (message.type === "requestExport") {
+        post({ type: "exportSvg", svg: serializeSvg() });
+        return;
+      }
+      if (message.type === "exportResult") {
+        if (message.success) {
+          showMessage("Saved to " + message.path, false);
+          window.setTimeout(hideMessage, 2500);
+        } else if (message.error) {
+          showMessage(message.error, true);
+        }
+      }
+    });
+
+    applyTransform();
+    post({ type: "ready" });
+  })();
+</script>

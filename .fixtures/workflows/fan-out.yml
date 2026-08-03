@@ -1,0 +1,27 @@
+name: Fan Out
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  lint:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run lint
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm test
+  publish:
+    needs: [lint, test]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: npm publish

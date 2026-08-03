@@ -1,0 +1,54 @@
+name: Release Pipeline
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Deployment target
+        options: [staging, production]
+        default: staging
+      dry-run:
+        type: boolean
+        default: true
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm run lint
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run compile
+  test:
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22]
+    steps:
+      - run: npm test
+  build:
+    needs: [lint, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm run build
+  publish:
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: npm publish
+  notify:
+    needs: publish
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo done

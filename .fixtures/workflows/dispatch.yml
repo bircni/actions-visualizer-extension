@@ -1,0 +1,25 @@
+name: Dispatch
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: Deployment target
+        options: [staging, production]
+        default: staging
+      dry-run:
+        type: boolean
+        default: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run build
+  ship:
+    needs: build
+    if: inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm publish

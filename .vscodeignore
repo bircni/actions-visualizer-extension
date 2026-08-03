@@ -1,0 +1,54 @@
+# Development files
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+.gitattributes
+.editorconfig
+tsconfig.json
+tsconfig.build.json
+tsconfig.e2e.json
+vitest.config.mts
+.oxlintrc.json
+.oxfmtrc.json
+*.map
+**/*.map
+dist/**/*.map
+*.tsbuildinfo
+
+# Documentation (not needed in extension)
+README.md
+# LICENSE
+AGENTS.md
+docs/**
+
+# Build artifacts
+node_modules/**
+coverage/**
+out/**
+*.log
+
+# TypeScript declaration files (not needed at runtime)
+dist/**/*.d.ts
+**/*.d.ts
+
+# Test files
+*.test.ts
+test/**
+test-results/**
+playwright-report/**
+
+# CI/CD
+.github/**
+
+# Cursor files
+.cursor/**
+
+# Dev tooling (not needed at runtime)
+scripts/**
+cliff.toml
+knip.json
+.tmp/**
+.node-version
+.fixtures/**
+playwright.config.js

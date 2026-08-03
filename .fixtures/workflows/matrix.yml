@@ -1,0 +1,12 @@
+name: Matrix
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/setup-node@v5
+      - run: npm test

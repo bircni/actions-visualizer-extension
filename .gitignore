@@ -1,0 +1,35 @@
+# Dependencies and build
+node_modules/
+dist/
+build/
+out/
+.tmp/
+*.tsbuildinfo
+
+# Logs and env
+*.log
+.env
+.env.*
+
+# IDE and OS
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.vscode-test/
+.idea/
+
+# Test and coverage
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# VS Code extension
+*.vsix
+!.fixtures/*.vsix
+
+.cursor/
+specs/**
+.specify/

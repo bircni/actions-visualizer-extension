@@ -1,0 +1,8 @@
+name: Unknown Condition
+on: push
+jobs:
+  gated:
+    if: secrets.DEPLOY_KEY != ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo deploy

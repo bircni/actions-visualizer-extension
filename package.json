@@ -1,0 +1,210 @@
+{
+  "name": "actions-visualizer",
+  "displayName": "Actions Visualizer",
+  "description": "VS Code extension: visualize GitHub Actions and Gitea Actions workflow files as a dependency graph next to the YAML",
+  "publisher": "bircni",
+  "version": "0.1.0",
+  "icon": "assets/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bircni/actions-visualizer-extension"
+  },
+  "homepage": "https://github.com/bircni/actions-visualizer-extension",
+  "bugs": {
+    "url": "https://github.com/bircni/actions-visualizer-extension/issues"
+  },
+  "keywords": [
+    "github",
+    "gitea",
+    "actions",
+    "workflow",
+    "ci",
+    "cd",
+    "pipeline",
+    "graph",
+    "dag",
+    "visualizer",
+    "preview",
+    "yaml",
+    "vscode"
+  ],
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "galleryBanner": {
+    "color": "#0f3d99",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "main": "dist/extension.js",
+  "scripts": {
+    "audit": "npm audit --audit-level high",
+    "build": "npm run compile && npm run bundle && npm run copy:webview && npm run package",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node18 --external:vscode --outfile=dist/extension.js --sourcemap",
+    "check-unused": "knip",
+    "clean": "rimraf dist",
+    "compile": "tsc --project tsconfig.build.json",
+    "copy:webview": "tsx scripts/copy-webview.ts",
+    "format": "oxfmt --check \"src/**/*.ts\" \"scripts/**/*.ts\" \"vitest.config.mts\" \"*.json\"",
+    "format:write": "oxfmt \"src/**/*.ts\" \"scripts/**/*.ts\" \"vitest.config.mts\" \"*.json\"",
+    "install:code:debug": "npm run build && code --install-extension dist/extension.vsix --force",
+    "uninstall:code:debug": "code --uninstall-extension bircni.actions-visualizer",
+    "install:cursor:debug": "npm run build && cursor --install-extension dist/extension.vsix --force",
+    "uninstall:cursor:debug": "cursor --uninstall-extension bircni.actions-visualizer",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "lint:fix": "oxlint --type-aware --fix",
+    "package": "vsce package --out dist/extension.vsix",
+    "compile:e2e": "tsc --project tsconfig.e2e.json",
+    "test": "vitest run --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
+    "test:e2e": "npm run bundle && npm run copy:webview && npm run compile:e2e && npm run test:e2e:host && npm run test:webview:browser",
+    "test:e2e:host": "node out/e2e/runTest.js",
+    "test:webview:browser": "npm run build:browser-fixture && vitest run --project e2e-browser",
+    "test:report": "vitest run --coverage && echo 'HTML report at: .tmp/coverage/lcov-report/index.html'",
+    "test:watch": "vitest",
+    "release": "tsx scripts/release.ts",
+    "coverage:summary": "tsx scripts/write-coverage-summary.ts",
+    "validate": "npm run check-unused && npm run lint && npm run format && npm run test:coverage && npm run test:e2e && npm run build && npm run audit",
+    "watch": "tsc --project tsconfig.build.json --watch",
+    "build:browser-fixture": "tsx scripts/build-browser-fixture.ts"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "3.1.0",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@tsconfig/node-lts": "24.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "26.1.2",
+    "@types/vscode": "1.105.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vscode/codicons": "^0.0.45",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.1",
+    "glob": "^13.0.6",
+    "jsdom": "30.0.1",
+    "knip": "^6.31.0",
+    "mocha": "^11.7.6",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "playwright": "1.62.1",
+    "rimraf": "6.1.3",
+    "tsx": "4.23.4",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "activationEvents": [
+    "onLanguage:yaml"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "actionsVisualizer.showPreviewToSide",
+        "title": "Open Workflow Graph to the Side",
+        "category": "Actions Visualizer",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "actionsVisualizer.showPreview",
+        "title": "Open Workflow Graph",
+        "category": "Actions Visualizer"
+      },
+      {
+        "command": "actionsVisualizer.exportSvg",
+        "title": "Export Workflow Graph as SVG",
+        "category": "Actions Visualizer"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "actionsVisualizer.showPreviewToSide",
+          "when": "resourceLangId =~ /^(yaml|github-actions-workflow)$/ && resourcePath =~ /[\\/\\\\]\\.(github|gitea)[\\/\\\\]workflows[\\/\\\\]/",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "actionsVisualizer.showPreview",
+          "when": "resourcePath =~ /[\\/\\\\]\\.(github|gitea)[\\/\\\\]workflows[\\/\\\\].*\\.ya?ml$/",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "actionsVisualizer.showPreviewToSide",
+          "when": "resourceLangId =~ /^(yaml|github-actions-workflow)$/"
+        },
+        {
+          "command": "actionsVisualizer.showPreview",
+          "when": "resourceLangId =~ /^(yaml|github-actions-workflow)$/"
+        },
+        {
+          "command": "actionsVisualizer.exportSvg",
+          "when": "actionsVisualizer.previewFocused"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Actions Visualizer",
+      "properties": {
+        "actions-visualizer.showSteps": {
+          "type": "string",
+          "default": "collapsed",
+          "enum": [
+            "collapsed",
+            "expanded",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Job nodes start collapsed and can be expanded to reveal their steps.",
+            "Job nodes start with all steps visible.",
+            "Steps are never shown."
+          ],
+          "markdownDescription": "How much step detail job nodes show when the graph is first rendered."
+        },
+        "actions-visualizer.expandMatrix": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Render one node per `strategy.matrix` combination instead of a single node with a matrix badge."
+        },
+        "actions-visualizer.direction": {
+          "type": "string",
+          "default": "LR",
+          "enum": [
+            "LR",
+            "TB"
+          ],
+          "enumDescriptions": [
+            "Lay the graph out left to right.",
+            "Lay the graph out top to bottom."
+          ],
+          "markdownDescription": "Direction the dependency graph flows in."
+        },
+        "actions-visualizer.liveUpdate": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Re-render the graph while you edit the workflow file."
+        },
+        "actions-visualizer.updateDelayMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 5000,
+          "markdownDescription": "Debounce in milliseconds before a live update re-renders the graph. Increase on very large workflows."
+        }
+      }
+    }
+  },
+  "overrides": {
+    "diff": "8.0.4",
+    "serialize-javascript": "7.0.5"
+  }
+}
