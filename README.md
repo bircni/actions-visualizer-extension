@@ -1,69 +1,95 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="" width="88" height="88" />
+
 # Actions Visualizer
 
-Visualize GitHub Actions and Gitea Actions workflow files as a dependency graph, right next to the
-YAML. It is the graph GitHub shows you after a run — except you get it while you are still writing
-the file.
+**See your GitHub and Gitea Actions workflows as a graph — and simulate a run before you push.**
 
-## What It Does
+It is the graph GitHub shows you after a run, except you get it while you are still writing the file.
 
-- Draws the workflow the way GitHub does: jobs at the same depth grouped into one card, matrix jobs
-  in their own tabbed card, and the triggers in the header rather than as boxes in the graph
-- **Simulates a run.** Pick an event, choose a ref, fill in `workflow_dispatch` inputs — every job
-  whose `if:` depends on them updates instantly. Jobs that would be skipped dim in place, so nothing
-  moves as you toggle
-- Updates live as you type, so a `needs:` change takes effect immediately
-- Click a job to jump to the matching line in the YAML
-- Flags problems the YAML does not, in the Problems panel as well as the graph: `needs:` pointing at
-  a job that does not exist, circular dependencies, conditions that can never be true, and job
-  conditions using a context GitHub only gives to steps
-- Works with both GitHub (`.github/workflows`) and Gitea (`.gitea/workflows`) — the syntax is the same
-- Exports the graph as a standalone SVG
+[![CI](https://github.com/bircni/actions-visualizer-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/bircni/actions-visualizer-extension/actions/workflows/ci.yml)
+[![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.105-0098FF?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Simulating A Run
+</div>
 
-The header is interactive. Click a trigger to simulate that event, and the graph re-evaluates every
-job's `if:` against it:
+![The Actions Visualizer panel open beside ci.yml. The header shows the workflow name, its push and
+pull_request triggers with pull_request selected, and the ref being simulated. Below it a card lists
+the ci, e2e and security jobs, with ci expanded to show its steps.](assets/example/preview.png)
 
-- A job that **would run** keeps its green check.
-- A job that **would be skipped** is dimmed and struck through, with the reason on hover. It stays
-  exactly where it was, so the layout never jumps.
-- A job that **cannot be decided** — its condition depends on a secret, a step output or a job's
-  outputs — gets a `?` marker rather than a guess.
+---
 
-Steps are evaluated too, against the wider set of contexts GitHub gives them. Skips propagate along
-`needs:` the way GitHub does, and `always()` / `!cancelled()` opt out of that.
+## Highlights
 
-Type a ref the workflow's `branches:` or `tags:` filters reject and the graph says the event would
-not fire at all, rather than pretending everything runs.
+|  | |
+| --- | --- |
+| **Laid out like GitHub** | Jobs at the same depth share a card, matrix jobs get their own tabbed card, and triggers live in the header rather than as boxes in the graph. |
+| **Simulates a run** | Pick an event, a ref and any `workflow_dispatch` inputs. Every job whose `if:` depends on them updates instantly. |
+| **Honest about the unknown** | A condition that depends on a secret or a step output is marked undecided rather than guessed at — and you can pin a value to decide it. |
+| **Catches real mistakes** | Missing `needs:` targets, circular dependencies, always-false conditions and job conditions using a context GitHub only gives to steps — in the Problems panel, not just the graph. |
+| **Live** | Re-renders as you type; click any job to jump to its line in the YAML. |
+| **Fully keyboard accessible** | Arrow keys, `Enter` to reveal, `Space` to expand, with labels for screen readers. |
+| **GitHub and Gitea** | `.github/workflows` and `.gitea/workflows` — the syntax is the same. |
 
-When a condition depends on something no preview can know — a secret, a step output, a job's output —
-the header offers a field for it. Fill it in and every condition that depends on it decides.
-
-The evaluator implements GitHub's expression language: contexts, property and index access, the `*`
-object filter, all the comparison and logical operators with GitHub's coercion rules (including
-case-insensitive string equality and `&&`/`||` returning an operand), and the built-in functions
-`contains`, `startsWith`, `endsWith`, `format`, `join`, `toJSON` and `fromJSON`.
-
-## How To Use
+## Getting started
 
 1. Open a workflow file under `.github/workflows/` or `.gitea/workflows/`.
 2. Click the graph icon in the editor title bar, or run **Actions Visualizer: Open Workflow Graph to
    the Side** from the Command Palette.
-3. Click a trigger chip in the header to simulate that event; fill in any inputs, the ref, and any
+3. Click a trigger chip in the header to simulate that event. Fill in any inputs, the ref, and any
    values the preview cannot work out on its own.
-4. Click a job to jump to it in the YAML; `Alt`-click to expand its steps.
-5. Pan by dragging, zoom with the wheel or `+` / `-`, and press `0` to fit the graph to the view.
+4. Click a job to jump to it in the YAML. `Alt`-click to expand its steps.
 
-Everything works from the keyboard too: `Tab` into the graph, arrow keys to move between jobs, `Home`
-and `End` to jump to the ends, `Enter` to reveal a job in the YAML and `Space` to expand it.
+The preview follows your active editor: opening another workflow moves the existing panel rather than
+adding a second one, and switching to a file that is not a workflow leaves the graph as it was. It
+also works on a draft outside a workflows directory, as long as the file has both `on:` and `jobs:`.
 
-The preview follows your active editor: opening another workflow file moves the existing panel rather
-than adding a second one. Switching to a file that is not a workflow leaves the graph as it was.
+### Keyboard and pointer
 
-It also works on a workflow draft outside a workflows directory, as long as the file has both `on:`
-and `jobs:` keys.
+| | |
+| --- | --- |
+| Move between jobs | <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>, or <kbd>Home</kbd> / <kbd>End</kbd> |
+| Reveal a job in the YAML | <kbd>Enter</kbd>, or click |
+| Expand a job's steps | <kbd>Space</kbd>, or <kbd>Alt</kbd>-click |
+| Zoom | <kbd>+</kbd> <kbd>-</kbd>, or the mouse wheel |
+| Fit the graph to the view | <kbd>0</kbd> |
+| Pan | drag |
 
-## Reading The Graph
+## Simulating a run
+
+The header is interactive. Click a trigger and the graph re-evaluates every job's `if:` against it:
+
+- A job that **would run** keeps its green check.
+- A job that **would be skipped** is dimmed and struck through, with the reason on hover. It stays
+  exactly where it was, so nothing moves as you toggle.
+- A job that **cannot be decided** gets an amber `?` rather than a guess.
+
+Steps are evaluated too, against the wider set of contexts GitHub gives them. Skips propagate along
+`needs:` the way GitHub does, and `always()` / `!cancelled()` opt out of that.
+
+Type a ref that the workflow's `branches:` or `tags:` filters reject and the graph says the event
+would not fire at all, instead of pretending everything runs.
+
+When a condition depends on something no preview can know — a secret, a step output, another job's
+output — the header offers a field for it. Fill it in and every condition that depends on it decides.
+
+<details>
+<summary><strong>What the expression evaluator supports</strong></summary>
+
+The full GitHub Actions expression language: contexts, property and index access, the `*` object
+filter, and every comparison and logical operator with GitHub's coercion rules — including
+case-insensitive string equality, cross-type numeric casting, and `&&` / `||` returning an operand
+rather than a boolean. Built-in functions: `contains`, `startsWith`, `endsWith`, `format`, `join`,
+`toJSON`, `fromJSON`, and the status functions `success`, `always`, `failure` and `cancelled`.
+
+Context availability is modelled too. A job-level `if:` sees only `github`, `needs`, `vars` and
+`inputs`; a step-level one additionally sees `env`, `matrix`, `job`, `runner`, `steps` and
+`strategy`. Using the wrong one is reported as a problem, because GitHub evaluates it as empty.
+
+</details>
+
+## Reading the graph
 
 | Element | Meaning |
 | --- | --- |
@@ -91,38 +117,36 @@ and `jobs:` keys.
 
 | Command | Description |
 | --- | --- |
-| `Actions Visualizer: Open Workflow Graph to the Side` | Opens the graph beside the YAML |
-| `Actions Visualizer: Open Workflow Graph` | Opens the graph in the current column |
-| `Actions Visualizer: Export Workflow Graph as SVG` | Saves the current graph as an SVG file |
+| **Actions Visualizer: Open Workflow Graph to the Side** | Opens the graph beside the YAML |
+| **Actions Visualizer: Open Workflow Graph** | Opens the graph in the current column |
+| **Actions Visualizer: Export Workflow Graph as SVG** | Saves the current graph as an SVG file |
 
-## Notes
+## Good to know
 
-- Layout runs in the extension host, not the webview, so the graph is computed once and the webview
-  only draws it. Large workflows stay responsive.
-- A workflow that does not parse shows the YAML error rather than a blank panel, so the preview stays
-  useful while you are mid-edit.
-- Matrix expansion is capped at 50 rows; when a matrix is larger, the graph says so instead of
+- **Nothing ever runs.** The simulation is entirely static and never contacts GitHub or Gitea, so
+  anything only a real run could know stays marked unknown rather than guessed.
+- **Layout happens in the extension host**, not the webview, so the graph is computed once and the
+  webview only draws it. Large workflows stay responsive.
+- **A workflow that does not parse** shows the YAML error rather than a blank panel, so the preview
+  stays useful mid-edit.
+- **Matrix expansion is capped at 50 rows.** When a matrix is larger the graph says so, rather than
   silently dropping combinations.
-- The simulation is static. It never runs anything and never contacts GitHub or Gitea, so anything
-  that only a real run knows stays marked unknown rather than guessed.
 
-## Testing
+## Contributing
 
 ```bash
+npm install
 npm test           # unit tests
 npm run test:e2e   # extension host tests plus the Playwright webview tests
 npm run validate   # everything CI runs
 ```
 
-## Install
-
-Install **Actions Visualizer** from the VS Code Marketplace or the Open VSX Registry, or build it
-locally with `npm run install:code:debug`.
+See [AGENTS.md](AGENTS.md) for the architecture and the conventions to follow.
 
 ## Feedback
 
-Please report bugs and feature requests at
-https://github.com/bircni/actions-visualizer-extension/issues.
+Bugs and feature requests are welcome in
+[the issue tracker](https://github.com/bircni/actions-visualizer-extension/issues).
 
 ## License
 
