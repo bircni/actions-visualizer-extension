@@ -13,8 +13,9 @@ the file.
   moves as you toggle
 - Updates live as you type, so a `needs:` change takes effect immediately
 - Click a job to jump to the matching line in the YAML
-- Flags problems the YAML does not: `needs:` pointing at a job that does not exist, and circular
-  dependencies
+- Flags problems the YAML does not, in the Problems panel as well as the graph: `needs:` pointing at
+  a job that does not exist, circular dependencies, conditions that can never be true, and job
+  conditions using a context GitHub only gives to steps
 - Works with both GitHub (`.github/workflows`) and Gitea (`.gitea/workflows`) — the syntax is the same
 - Exports the graph as a standalone SVG
 
@@ -29,7 +30,14 @@ job's `if:` against it:
 - A job that **cannot be decided** — its condition depends on a secret, a step output or a job's
   outputs — gets a `?` marker rather than a guess.
 
-Skips propagate along `needs:` the way GitHub does, and `always()` / `!cancelled()` opt out of that.
+Steps are evaluated too, against the wider set of contexts GitHub gives them. Skips propagate along
+`needs:` the way GitHub does, and `always()` / `!cancelled()` opt out of that.
+
+Type a ref the workflow's `branches:` or `tags:` filters reject and the graph says the event would
+not fire at all, rather than pretending everything runs.
+
+When a condition depends on something no preview can know — a secret, a step output, a job's output —
+the header offers a field for it. Fill it in and every condition that depends on it decides.
 
 The evaluator implements GitHub's expression language: contexts, property and index access, the `*`
 object filter, all the comparison and logical operators with GitHub's coercion rules (including
@@ -41,9 +49,13 @@ case-insensitive string equality and `&&`/`||` returning an operand), and the bu
 1. Open a workflow file under `.github/workflows/` or `.gitea/workflows/`.
 2. Click the graph icon in the editor title bar, or run **Actions Visualizer: Open Workflow Graph to
    the Side** from the Command Palette.
-3. Click a trigger chip in the header to simulate that event; fill in any inputs it declares.
+3. Click a trigger chip in the header to simulate that event; fill in any inputs, the ref, and any
+   values the preview cannot work out on its own.
 4. Click a job to jump to it in the YAML; `Alt`-click to expand its steps.
 5. Pan by dragging, zoom with the wheel or `+` / `-`, and press `0` to fit the graph to the view.
+
+Everything works from the keyboard too: `Tab` into the graph, arrow keys to move between jobs, `Home`
+and `End` to jump to the ends, `Enter` to reveal a job in the YAML and `Space` to expand it.
 
 The preview follows your active editor: opening another workflow file moves the existing panel rather
 than adding a second one. Switching to a file that is not a workflow leaves the graph as it was.
@@ -59,7 +71,7 @@ and `jobs:` keys.
 | `Matrix: build` tab | A matrix job; click the row to expand it into one row per combination |
 | Green check | The job would run for the simulated event |
 | Dashed grey circle, struck-through name | The job would be skipped; hover for why |
-| Amber `?` | The condition cannot be decided statically |
+| Amber `?` | The condition cannot be decided statically; pin its value in the header |
 | Red dashed card | A `needs:` reference to a job that does not exist |
 | Solid line with end dots | A `needs:` dependency |
 | Faded dashed line | Every job behind this dependency is skipped |

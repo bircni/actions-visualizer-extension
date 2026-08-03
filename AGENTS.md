@@ -45,7 +45,9 @@ src/
     detect.ts                  is this path/document a workflow?
     model.ts                   WorkflowModel and friends
     parse.ts                   YAML -> WorkflowModel, with source ranges
-    simulate.ts                which jobs would run for a given event and inputs
+    simulate.ts                which jobs and steps would run for a given event
+    filters.ts                 GitHub's `branches:`/`tags:` pattern matching
+    lint.ts                    workflow checks reported as editor diagnostics
     graph.ts                   WorkflowModel -> GraphModel (cards + edges, no coordinates)
     layout.ts                  GraphModel -> PositionedGraph (dagre + elbow routing)
     expression/                the GitHub Actions expression language
@@ -53,6 +55,7 @@ src/
       parse.ts                 lexer + Pratt parser
       evaluate.ts              evaluator, GitHub coercion rules, UNKNOWN propagation
   preview/
+    diagnostics.ts             publishes lint findings to the Problems panel
     previewController.ts       PURE — all VS Code calls arrive as injected lambdas
     previewPanel.ts            the single panel, and the only place that touches
                                WebviewPanel and workspace events
@@ -118,6 +121,16 @@ The expression evaluator has three outcomes, not two: true, false and `UNKNOWN`.
 cannot know `secrets`, `steps` or a job's outputs, and guessing would be worse than admitting it.
 `UNKNOWN` propagates through every operation except a short circuit that is already decided
 (`false && secrets.X` is false). Never collapse it to `false` for convenience.
+
+The user can pin a value for any unresolved path, which is why `unresolvedReferences` exists. Note
+the distinction it rests on: a property of a {@link PartialRecord} we did not model is *unknown*,
+while a missing key of a fully known object is *absent*. That is what makes
+`needs.build.outputs.declared` pinnable and `needs.build.outputs.typo` decidably false.
+
+Contexts are also scoped. GitHub gives a job-level `if:` only `github`, `needs`, `vars` and
+`inputs`; a step-level one additionally gets `env`, `matrix`, `job`, `runner`, `steps` and
+`strategy`. `buildContexts` takes a scope for exactly this reason — do not widen it for convenience,
+and `lint.ts` reports the mistake when a workflow gets it wrong.
 
 ### 4. Layout Runs In The Host, Not The Webview
 
