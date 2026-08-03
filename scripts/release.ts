@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 /**
  * Release helper script for this project.
@@ -102,8 +103,16 @@ try {
   log("📝 Generating CHANGELOG.md...");
   run(`npx git-cliff -o CHANGELOG.md --tag ${tagVersion}`);
 
-  log("🔢 Bumping package.json version...");
-  run(`npm version ${nextVersion} --no-git-tag-version`);
+  // On a first release git-cliff picks the version package.json already carries,
+  // and `npm version` refuses to "change" a version to itself. Nothing to bump.
+  const currentVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version?: string })
+    .version;
+  if (currentVersion === nextVersion) {
+    log(`🔢 package.json is already at ${nextVersion}, nothing to bump.`);
+  } else {
+    log("🔢 Bumping package.json version...");
+    run(`npm version ${nextVersion} --no-git-tag-version`);
+  }
 
   log("✅ Committing changes...");
   run("git add CHANGELOG.md package.json package-lock.json");
