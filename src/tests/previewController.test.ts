@@ -487,3 +487,188 @@ describe("createPreviewController state and unknown messages", () => {
     expect(h.logError).toHaveBeenCalledWith("Unknown message from webview", { type: "nonsense" });
   });
 });
+
+describe("createPreviewController playthrough", () => {
+  const WALK = [
+    "on: push",
+    "jobs:",
+    "  build:",
+    "    outputs:",
+    "      version: ${{ steps.meta.outputs.version }}",
+    "    steps:",
+    "      - id: meta",
+    "        name: compile",
+    '        run: echo "version=1" >> $GITHUB_OUTPUT',
+    "      - name: notify",
+    "        if: failure()",
+    "        run: echo failed",
+    "  ship:",
+    "    needs: build",
+    "    if: needs.build.outputs.version == '2'",
+    "    steps:",
+    "      - run: echo ship",
+  ].join("\n");
+
+  function playthroughOf(posted: HostWebviewMessage[]) {
+    return lastGraph(posted).playthrough;
+  }
+
+  it("omits the playthrough entirely until one is started", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.render();
+    expect(playthroughOf(h.posted)).toBeUndefined();
+    expect(controller.getState().playthrough).toBeUndefined();
+  });
+
+  it("starts at the first step and reports where it is", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+
+    const view = playthroughOf(h.posted);
+    expect(view?.cursor).toMatchObject({ jobId: "build", stepIndex: 0, stepName: "compile" });
+    expect(view?.progress).toEqual({ decided: 0, total: 3 });
+    expect(view?.done).toBe(false);
+  });
+
+  it("offers the output names it discovered at the cursor", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    expect(playthroughOf(h.posted)?.cursor?.outputNames).toEqual(["version"]);
+  });
+
+  it("advances when a step is decided", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "success" });
+    // `notify` is `if: failure()`, so a healthy run moves straight past it.
+    expect(playthroughOf(h.posted)?.cursor?.jobId).toBe("ship");
+  });
+
+  it("takes a different path when the step fails", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "failure" });
+    expect(playthroughOf(h.posted)?.cursor?.stepName).toBe("notify");
+  });
+
+  it("carries the outputs a step reported into the jobs downstream", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({
+      type: "decideStep",
+      outcome: "success",
+      outputs: { version: "2" },
+    });
+    // `ship` only runs when the version is 2, so supplying it opens that path.
+    expect(playthroughOf(h.posted)?.cursor?.jobId).toBe("ship");
+  });
+
+  it("puts the run state on the rows the graph draws", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "failure" });
+
+    const rows = lastGraph(h.posted).graph.cards.flatMap((card) => card.rows);
+    expect(rows.find((row) => row.jobId === "build")?.run).toBe("current");
+    expect(rows.find((row) => row.jobId === "ship")?.run).toBe("pending");
+  });
+
+  it("undoes the last decision", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "success" });
+    expect(playthroughOf(h.posted)?.progress.decided).toBe(1);
+
+    await controller.handleMessage({ type: "undoStep" });
+    expect(playthroughOf(h.posted)?.progress.decided).toBe(0);
+    expect(playthroughOf(h.posted)?.cursor?.stepIndex).toBe(0);
+  });
+
+  it("re-deciding a step replaces its earlier answer rather than stacking", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "success" });
+    await controller.handleMessage({ type: "undoStep" });
+    await controller.handleMessage({ type: "decideStep", outcome: "failure" });
+    expect(playthroughOf(h.posted)?.progress.decided).toBe(1);
+    expect(playthroughOf(h.posted)?.cursor?.stepName).toBe("notify");
+  });
+
+  it("restarts back to the beginning", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "success" });
+    await controller.handleMessage({ type: "restartPlaythrough" });
+    expect(playthroughOf(h.posted)?.progress.decided).toBe(0);
+    expect(playthroughOf(h.posted)?.cursor?.stepIndex).toBe(0);
+  });
+
+  it("skips the rest of the current job", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "skipJobRest" });
+    expect(playthroughOf(h.posted)?.cursor?.jobId).not.toBe("build");
+  });
+
+  it("walks only the job it was started on", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough", nodeId: "ship" });
+    const view = playthroughOf(h.posted);
+    expect(view?.scope).toBe("ship");
+    expect(view?.cursor?.jobId).toBe("ship");
+  });
+
+  it("stops, leaving the simulation exactly as it was", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "setRef", value: "refs/heads/topic" });
+    await controller.handleMessage({ type: "setPin", name: "secrets.X", input: "v" });
+    const before = controller.getState().simulation;
+
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({ type: "decideStep", outcome: "success" });
+    await controller.handleMessage({ type: "stopPlaythrough" });
+
+    expect(playthroughOf(h.posted)).toBeUndefined();
+    expect(controller.getState().playthrough).toBeUndefined();
+    // The mode is layered over the simulation, so leaving it disturbs nothing.
+    expect(controller.getState().simulation).toEqual(before);
+  });
+
+  it("ignores playthrough messages when no walk is running", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.render();
+    const posted = h.posted.length;
+
+    await controller.handleMessage({ type: "decideStep", outcome: "success" });
+    await controller.handleMessage({ type: "undoStep" });
+    await controller.handleMessage({ type: "restartPlaythrough" });
+    await controller.handleMessage({ type: "skipJobRest" });
+    expect(h.posted).toHaveLength(posted);
+  });
+
+  it("drops output entries a form could not legitimately produce", async () => {
+    const h = harness(WALK);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "startPlaythrough" });
+    await controller.handleMessage({
+      type: "decideStep",
+      outcome: "success",
+      outputs: { version: "2", "": "x", bad: 7 as unknown as string },
+    });
+    expect(controller.getState().playthrough?.decisions[0]?.outputs).toEqual({ version: "2" });
+  });
+});

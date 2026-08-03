@@ -8,7 +8,14 @@
 
 import type { LayoutDirection, PositionedGraph } from "../workflow/layout.js";
 import { parseWorkflow } from "../workflow/parse.js";
-import { buildGraphMessage, type SimulationView } from "./graphMessage.js";
+import { buildGraphMessage, type GraphMessageBody } from "./graphMessage.js";
+import {
+  newPlaythrough,
+  type Playthrough,
+  type PlaythroughCursor,
+  type StepDecision,
+  type StepOutcome,
+} from "../workflow/playthrough.js";
 import {
   defaultInputValue,
   inputsFor,
@@ -33,18 +40,17 @@ export type WebviewHostMessage = {
   name?: string;
   /** Input value for `setInput`. */
   input?: string | boolean | number;
+  /** Outcome for `decideStep`. */
+  outcome?: string;
+  /** Outputs the step produced, for `decideStep`. */
+  outputs?: Record<string, string>;
   /** Serialised SVG for `exportSvg`. */
   svg?: string;
 };
 
 /** Messages the host sends to the webview. */
 export type HostWebviewMessage =
-  | {
-      type: "graph";
-      graph: PositionedGraph;
-      expanded: string[];
-      simulation: SimulationView;
-    }
+  | ({ type: "graph" } & GraphMessageBody)
   | { type: "requestExport" }
   | { type: "exportResult"; success: boolean; path?: string; error?: string };
 
@@ -70,6 +76,8 @@ export type PreviewState = {
   expanded: string[];
   direction: LayoutDirection;
   simulation: Simulation;
+  /** The walk in progress, when the user has started one. */
+  playthrough?: Playthrough;
 };
 
 export type PreviewController = {
@@ -81,6 +89,17 @@ export type PreviewController = {
   getState: () => PreviewState;
 };
 
+/** Keeps only the string-valued entries a webview form can legitimately produce. */
+function sanitiseOutputs(outputs: Record<string, string> | undefined): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [name, value] of Object.entries(outputs ?? {})) {
+    if (name.length > 0 && typeof value === "string") {
+      clean[name] = value;
+    }
+  }
+  return clean;
+}
+
 function fileNameOf(path: string): string {
   return path.split(/[/\\]/).pop() ?? "workflow.yml";
 }
@@ -90,6 +109,10 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
   let directionOverride: LayoutDirection | undefined;
   let lastGraph: PositionedGraph | undefined;
   let simulation: Simulation = { inputs: {} };
+  /** Undefined until the user presses play; that absence is what "not playing" means. */
+  let playthrough: Playthrough | undefined;
+  /** The cursor from the last render, so a decision knows which step it answers. */
+  let lastCursor: PlaythroughCursor | undefined;
   /** Cleared once, so the first render can pick a sensible default event. */
   let simulationInitialized = false;
   let expandedInitialized = false;
@@ -149,6 +172,7 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
       simulation,
       expanded: [...expanded],
       ...(seedAll ? { expandAllRows: true } : {}),
+      playthrough,
     });
 
     // Adopt what survived, so a renamed job cannot keep the graph expanded on a
@@ -159,6 +183,7 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
     }
 
     lastGraph = body.graph;
+    lastCursor = body.playthrough?.cursor;
     await deps.postMessage({ type: "graph", ...body });
   };
 
@@ -230,6 +255,42 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
     await render();
   };
 
+  /**
+   * Records what happened to the step at the cursor.
+   *
+   * Decisions are appended, never overwritten in place, and any decision for the
+   * same step is dropped first — that keeps a re-decision after an undo from
+   * leaving a stale entry behind.
+   */
+  const decideStep = async (message: WebviewHostMessage): Promise<void> => {
+    if (playthrough == null || lastCursor == null) {
+      return;
+    }
+    const outcome: StepOutcome =
+      message.outcome === "failure"
+        ? "failure"
+        : message.outcome === "skipped"
+          ? "skipped"
+          : "success";
+    const decision: StepDecision = {
+      jobId: lastCursor.jobId,
+      stepIndex: lastCursor.stepIndex,
+      outcome,
+      outputs: sanitiseOutputs(message.outputs),
+    };
+    playthrough = {
+      ...playthrough,
+      decisions: [
+        ...playthrough.decisions.filter(
+          (existing) =>
+            existing.jobId !== decision.jobId || existing.stepIndex !== decision.stepIndex,
+        ),
+        decision,
+      ],
+    };
+    await render();
+  };
+
   const exportSvg = async (svg: string | undefined): Promise<void> => {
     if (svg == null || svg.length === 0) {
       await deps.postMessage({
@@ -294,6 +355,41 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
       case "setPin":
         await setPin(message.name, message.input);
         return;
+      case "startPlaythrough":
+        // Starting a walk leaves the event, ref, inputs and pins exactly as they
+        // are — it is a mode over the simulation, not a replacement for it.
+        playthrough = newPlaythrough(message.nodeId);
+        await render();
+        return;
+      case "stopPlaythrough":
+        playthrough = undefined;
+        await render();
+        return;
+      case "restartPlaythrough":
+        if (playthrough != null) {
+          playthrough = newPlaythrough(playthrough.scope);
+          await render();
+        }
+        return;
+      case "decideStep":
+        await decideStep(message);
+        return;
+      case "undoStep":
+        if (playthrough != null && playthrough.decisions.length > 0) {
+          playthrough = { ...playthrough, decisions: playthrough.decisions.slice(0, -1) };
+          await render();
+        }
+        return;
+      case "skipJobRest":
+        if (playthrough != null && lastCursor != null) {
+          const jobId = message.nodeId ?? lastCursor.jobId;
+          playthrough = {
+            ...playthrough,
+            skippedJobs: [...new Set([...playthrough.skippedJobs, jobId])],
+          };
+          await render();
+        }
+        return;
       case "revealSource":
         if (typeof message.offset === "number" && message.offset >= 0) {
           await deps.revealSource(message.offset);
@@ -318,6 +414,7 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
       expanded: [...expanded],
       direction: currentDirection(deps.readSettings()),
       simulation,
+      ...(playthrough == null ? {} : { playthrough }),
     }),
   };
 }

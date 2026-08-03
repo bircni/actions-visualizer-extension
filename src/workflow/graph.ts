@@ -9,6 +9,7 @@
  */
 
 import { simulateJobs, triggerFires, type JobState, type Simulation } from "./simulate.js";
+import type { JobRun, RunState } from "./playthrough.js";
 import type { SourceRange, WorkflowJob, WorkflowMatrix, WorkflowModel } from "./model.js";
 
 /** Upper bound on rows produced by expanding a matrix, to keep a card readable. */
@@ -37,7 +38,13 @@ type CardRow = {
     conditional: boolean;
     /** Whether this step would run for the simulated event. */
     state: JobState;
+    /** How the step stands in a playthrough, when one is in progress. */
+    run?: RunState;
   }[];
+  /** How the job stands in a playthrough, when one is in progress. */
+  run?: RunState;
+  /** Why the job is in that playthrough state. */
+  runReason?: string;
   range?: SourceRange;
 };
 
@@ -85,6 +92,11 @@ export type BuildGraphOptions = {
   simulation: Simulation;
   /** Ids of cards and rows the user has expanded. */
   expanded: string[];
+  /**
+   * Per-job playthrough state, when one is running. Carried alongside the static
+   * state rather than replacing it, so the static path stays untouched.
+   */
+  run?: Map<string, JobRun>;
 };
 
 const MISSING_CARD_ID = "card:missing";
@@ -141,16 +153,25 @@ function jobMeta(job: WorkflowJob): string | undefined {
   return job.uses == null ? job.runsOn : "reusable workflow";
 }
 
-function jobSteps(job: WorkflowJob, showSteps: boolean, states: JobState[]): CardRow["steps"] {
+function jobSteps(
+  job: WorkflowJob,
+  showSteps: boolean,
+  states: JobState[],
+  run: JobRun | undefined,
+): CardRow["steps"] {
   if (!showSteps) {
     return [];
   }
-  return job.steps.map((step, index) => ({
-    name: step.name,
-    kind: step.isRun ? "run" : step.uses == null ? "other" : "uses",
-    conditional: step.condition != null,
-    state: states[index] ?? "run",
-  }));
+  return job.steps.map((step, index) => {
+    const runState = run?.steps[index]?.state;
+    return {
+      name: step.name,
+      kind: step.isRun ? "run" : step.uses == null ? "other" : "uses",
+      conditional: step.condition != null,
+      state: states[index] ?? "run",
+      ...(runState == null ? {} : { run: runState }),
+    };
+  });
 }
 
 /** Job ids that take part in a `needs:` cycle. */
@@ -245,15 +266,18 @@ export function buildGraph(model: WorkflowModel, options: BuildGraphOptions): Gr
 
   for (const job of model.jobs) {
     const outcome = simulation.get(job.id);
+    const jobRun = options.run?.get(job.id);
     const meta = jobMeta(job);
     const baseRow = {
       jobId: job.id,
       state: outcome?.state ?? "run",
       ...(outcome?.reason == null ? {} : { reason: outcome.reason }),
+      ...(jobRun == null ? {} : { run: jobRun.state }),
+      ...(jobRun?.reason == null ? {} : { runReason: jobRun.reason }),
       ...(job.condition == null ? {} : { condition: job.condition }),
       ...(job.uses == null ? {} : { uses: job.uses }),
       ...(meta == null ? {} : { meta }),
-      steps: jobSteps(job, options.showSteps, outcome?.steps ?? []),
+      steps: jobSteps(job, options.showSteps, outcome?.steps ?? [], jobRun),
       ...(job.range == null ? {} : { range: job.range }),
     };
 
