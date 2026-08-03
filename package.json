@@ -3,7 +3,7 @@
   "displayName": "Actions Visualizer",
   "description": "VS Code extension: visualize GitHub Actions and Gitea Actions workflow files as a dependency graph next to the YAML",
   "publisher": "bircni",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "icon": "assets/icon.png",
   "license": "MIT",
   "repository": {

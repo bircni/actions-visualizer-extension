@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/bircni/actions-visualizer-extension/compare/v0.1.0..v0.2.0) - 2026-08-03
+
+### Added
+
+- **(expression)** decide the status functions from the run, not a constant - ([c7cb0eb](https://github.com/bircni/actions-visualizer-extension/commit/c7cb0ebd4ddf471f652ad0d3518dbe26b78bc5ea))
+- **(parse)** keep step ids, run scripts and output expressions - ([5e00d0c](https://github.com/bircni/actions-visualizer-extension/commit/5e00d0c48e3a530b59447da5f8cfda2206104a26))
+- **(preview)** drive a playthrough from the controller - ([74e5c1d](https://github.com/bircni/actions-visualizer-extension/commit/74e5c1d94caa453d627038ea09efb1b99fb9823d))
+- **(webview)** render the playthrough - ([b15d3ac](https://github.com/bircni/actions-visualizer-extension/commit/b15d3ac8443d9e5ba5449af18d2791e34f81f96f))
+- **(workflow)** discover the outputs a step produces - ([64163c1](https://github.com/bircni/actions-visualizer-extension/commit/64163c1b947234fb2e757b13c32073a03f30fc40))
+- **(workflow)** add the playthrough engine - ([851bea7](https://github.com/bircni/actions-visualizer-extension/commit/851bea7f8ee42bec6214a08f179c27da1f5df552))
+
+### Changed
+
+- **(preview)** assemble the graph message in one place - ([56058a4](https://github.com/bircni/actions-visualizer-extension/commit/56058a4e1fe970113525cc6ac3445ba9bc97fcf3))
+- describe playthrough mode - ([75fb8bd](https://github.com/bircni/actions-visualizer-extension/commit/75fb8bd8d347c82fbca661b101502957df583f83))
+
+### Fixed
+
+- **(simulate)** stop a pin from clobbering the context it lands in - ([1f343c4](https://github.com/bircni/actions-visualizer-extension/commit/1f343c444866298a213defeb185de768c37a3d1d))
+
 ## [0.1.0] - 2026-08-03
 
 ### Added
