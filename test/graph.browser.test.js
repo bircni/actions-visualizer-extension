@@ -21,7 +21,7 @@ if (!fs.existsSync(fixturePath)) {
   );
 }
 
-/** @type {Record<string, {graph: any, simulation: any}>} */
+/** @type {Record<string, {graph: any, simulation: any, playthrough?: any}>} */
 const PAYLOADS = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
 
 /**
@@ -112,12 +112,9 @@ async function send(page, message) {
 async function sendGraph(page, name) {
   const payload = PAYLOADS[name];
   expect(payload, `fixture "${name}" should exist`).toBeTruthy();
-  await send(page, {
-    type: "graph",
-    graph: payload.graph,
-    expanded: [],
-    simulation: payload.simulation,
-  });
+  // Spread the whole fixture rather than naming its fields, so a new one on the
+  // host's message reaches the page without this helper having to learn about it.
+  await send(page, { type: "graph", ...payload });
 }
 
 async function resetPosted(page) {
@@ -549,4 +546,56 @@ test.describe("workflow graph webview", () => {
     });
     expect(visible).toBe(true);
   });
+
+  test("shows the playthrough bar only while a walk is running", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "fanOut");
+    await expect(page.locator("#playthrough")).toBeHidden();
+
+    await sendGraph(page, "playStart");
+    await expect(page.locator("#playthrough")).toBeVisible();
+    await expect(page.locator("#playthrough .position")).toContainText("build");
+    // The simulation controls step aside so they cannot invalidate the walk.
+    await expect(page.locator("#simulation")).toBeHidden();
+  });
+
+  test("reports the outcome and the outputs typed alongside it", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "playOutputs");
+    await resetPosted(page);
+
+    await page.locator("#playthrough input[data-output]").fill("1.4.2");
+    await page.locator("#outcome-success").click();
+    expect(await page.evaluate(() => window.__posted)).toContainEqual({
+      type: "decideStep",
+      outcome: "success",
+      outputs: { version: "1.4.2" },
+    });
+  });
+
+  test("draws the failed job, the skipped dependant and the current step", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "playFailed");
+
+    await expect(page.locator('[data-row-id="row:build"]')).toHaveClass(/failure/);
+    await expect(page.locator('[data-row-id="row:publish"]')).toHaveClass(/skipped/);
+    await expect(page.locator('[data-row-id="row:notify"]')).toHaveClass(/current/);
+    await expect(page.locator(".row-step.step-failure")).toHaveCount(1);
+  });
+
+  for (const theme of ["light", "dark"]) {
+    test(`keeps the playthrough bar readable on the ${theme} theme`, async ({ page }) => {
+      await mount(page, theme);
+      await sendGraph(page, "playOutputs");
+
+      expect(await contrastOf(page, "#playthrough .position"), "position").toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(await contrastOf(page, "#playthrough .progress"), "progress").toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(await contrastOf(page, "#outcome-success"), "succeeded").toBeGreaterThanOrEqual(3);
+      expect(await contrastOf(page, "#outcome-failure"), "failed").toBeGreaterThanOrEqual(3);
+    });
+  }
 });

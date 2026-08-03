@@ -10,7 +10,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-type PreviewRow = { id: string; jobId: string; title: string; state: string; expanded: boolean };
+type PreviewRow = {
+  id: string;
+  jobId: string;
+  title: string;
+  state: string;
+  expanded: boolean;
+  run?: string;
+};
 
 type PreviewState = {
   graph?: {
@@ -24,6 +31,7 @@ type PreviewState = {
   expanded: string[];
   direction: string;
   simulation: { event?: string; ref?: string; inputs: Record<string, unknown> };
+  playthrough?: { decisions: unknown[]; skippedJobs: string[]; scope?: string };
 };
 
 /** Every row across every card, which is what most assertions care about. */
@@ -319,5 +327,64 @@ describe("Actions Visualizer extension host", function () {
     // The skipped job stays in place, dimmed, rather than disappearing.
     assert.strictEqual(rows(onPr).length, rows(onPush).length);
     assert.strictEqual(rows(onPr).find((row) => row.jobId === "build")?.state, "run");
+  });
+
+  it("walks a workflow step by step and reacts to a failure", async () => {
+    await openWorkflow(
+      "walk.yml",
+      [
+        "on: push",
+        "jobs:",
+        "  build:",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - name: compile",
+        "        run: make",
+        "      - name: notify",
+        "        if: failure()",
+        "        run: echo failed",
+        "  ship:",
+        "    needs: build",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - run: echo ship",
+        "",
+      ].join("\n"),
+    );
+    await vscode.commands.executeCommand("actionsVisualizer.showPreviewToSide");
+    await waitForGraph();
+
+    // No walk yet.
+    assert.strictEqual((await getState())?.playthrough, undefined);
+
+    await vscode.commands.executeCommand("actionsVisualizer.__test.postMessage", {
+      type: "startPlaythrough",
+    });
+    await waitFor(async () => {
+      const state = await getState();
+      return state?.playthrough == null ? undefined : state;
+    });
+
+    await vscode.commands.executeCommand("actionsVisualizer.__test.postMessage", {
+      type: "decideStep",
+      outcome: "failure",
+    });
+    const failed = await waitFor(async () => {
+      const state = await getState();
+      return state?.playthrough?.decisions.length === 1 ? state : undefined;
+    });
+
+    // `notify` is `if: failure()`, so failing the first step is what lets it run.
+    const walked = failed.graph == null ? [] : rows(failed.graph);
+    assert.strictEqual(walked.find((row) => row.jobId === "ship")?.run, "pending");
+
+    await vscode.commands.executeCommand("actionsVisualizer.__test.postMessage", {
+      type: "stopPlaythrough",
+    });
+    const stopped = await waitFor(async () => {
+      const state = await getState();
+      return state?.playthrough == null ? state : undefined;
+    });
+    assert.strictEqual(stopped.playthrough, undefined);
   });
 });

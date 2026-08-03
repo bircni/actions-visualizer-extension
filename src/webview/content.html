@@ -195,6 +195,73 @@
     line-height: 1;
   }
 
+  /* ---------- playthrough ---------- */
+
+  #playthrough {
+    margin-top: 8px;
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+  }
+
+  #playthrough.visible {
+    display: flex;
+  }
+
+  #playthrough .position {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  #playthrough .progress {
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .outcome {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .outcome:hover {
+    border-color: var(--accent);
+  }
+
+  .outcome:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder, var(--accent));
+    outline-offset: 1px;
+  }
+
+  .outcome.succeeded {
+    color: var(--ok);
+  }
+
+  .outcome.failed {
+    color: var(--error);
+  }
+
+  .outputs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+  }
+
+  .outputs .field > .name {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.92em;
+  }
+
   #banner {
     flex: 0 0 auto;
     display: none;
@@ -355,8 +422,53 @@
     text-decoration: line-through;
   }
 
-  .state-run {
+  .state-run,
+  .state-success {
     fill: var(--ok);
+  }
+
+  .state-failure {
+    fill: var(--error);
+  }
+
+  /* Not reached yet: present, but clearly not part of the story so far. */
+  .state-pending {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.5;
+    opacity: 0.6;
+  }
+
+  .state-current {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+  }
+
+  .state-current-dot {
+    fill: var(--accent);
+  }
+
+  .row.pending {
+    opacity: 0.5;
+  }
+
+  .row.current .row-title {
+    font-weight: 600;
+  }
+
+  .row-step.step-pending,
+  .step-marker.step-pending {
+    opacity: 0.45;
+  }
+
+  .row-step.step-failure {
+    fill: var(--error);
+  }
+
+  .row-step.step-current {
+    fill: var(--accent);
+    font-weight: 600;
   }
 
   .state-skipped {
@@ -430,6 +542,9 @@
       <div id="triggers"></div>
     </div>
     <div id="toolbar">
+      <button class="tool" id="btn-play" title="Play through this workflow">
+        <span class="codicon codicon-play"></span>
+      </button>
       <button class="tool" id="btn-direction" title="Toggle layout direction">
         <span class="codicon codicon-layout"></span>
       </button>
@@ -454,6 +569,7 @@
     </div>
   </div>
   <div id="simulation"></div>
+  <div id="playthrough"></div>
 </div>
 
 <div id="banner"></div>
@@ -505,8 +621,16 @@
     var titleEl = document.getElementById("title");
     var triggersEl = document.getElementById("triggers");
     var simulationEl = document.getElementById("simulation");
+    var playthroughEl = document.getElementById("playthrough");
 
-    var state = { graph: null, scale: 1, offsetX: 0, offsetY: 0, direction: "LR" };
+    var state = {
+      graph: null,
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      direction: "LR",
+      playing: false,
+    };
 
     function post(message) {
       if (vscode) {
@@ -579,6 +703,119 @@
       }
 
       renderSimulation(simulation);
+    }
+
+    /**
+     * The playthrough bar: where you are, what you can say happened, and the
+     * outputs the step is expected to produce.
+     */
+    function renderPlaythrough(playthrough) {
+      clear(playthroughEl);
+      if (!playthrough) {
+        playthroughEl.className = "";
+        return;
+      }
+      playthroughEl.className = "visible";
+
+      var position = document.createElement("span");
+      position.className = "position";
+      if (playthrough.done) {
+        position.textContent = "Run complete";
+      } else if (playthrough.cursor) {
+        position.textContent = playthrough.cursor.jobName + " · " + playthrough.cursor.stepName;
+      } else {
+        position.textContent = "Nothing to run";
+      }
+      playthroughEl.appendChild(position);
+
+      var progress = document.createElement("span");
+      progress.className = "progress";
+      progress.textContent =
+        playthrough.progress.decided + " of " + playthrough.progress.total + " steps";
+      playthroughEl.appendChild(progress);
+
+      if (playthrough.cursor) {
+        playthroughEl.appendChild(outcomeButton("succeeded", "success", "codicon-pass"));
+        playthroughEl.appendChild(outcomeButton("failed", "failure", "codicon-error"));
+        playthroughEl.appendChild(
+          controlButton("Skip rest of job", "skip-job", function () {
+            post({ type: "skipJobRest" });
+          }),
+        );
+        playthroughEl.appendChild(outputFields(playthrough.cursor.outputNames));
+      }
+
+      if (playthrough.progress.decided > 0) {
+        playthroughEl.appendChild(
+          controlButton("Undo", "undo-step", function () {
+            post({ type: "undoStep" });
+          }),
+        );
+      }
+      playthroughEl.appendChild(
+        controlButton("Restart", "restart-playthrough", function () {
+          post({ type: "restartPlaythrough" });
+        }),
+      );
+      playthroughEl.appendChild(
+        controlButton("Stop", "stop-playthrough", function () {
+          post({ type: "stopPlaythrough" });
+        }),
+      );
+    }
+
+    /** Reads whatever the output fields currently hold. */
+    function collectOutputs() {
+      var outputs = {};
+      var fields = playthroughEl.querySelectorAll("input[data-output]");
+      for (var i = 0; i < fields.length; i++) {
+        var name = fields[i].getAttribute("data-output");
+        if (name && fields[i].value !== "") {
+          outputs[name] = fields[i].value;
+        }
+      }
+      return outputs;
+    }
+
+    function outcomeButton(label, outcome, icon) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "outcome " + label;
+      button.id = "outcome-" + outcome;
+      var glyph = document.createElement("span");
+      glyph.className = "codicon " + icon;
+      button.appendChild(glyph);
+      button.appendChild(document.createTextNode(label));
+      button.addEventListener("click", function () {
+        // Whatever is in the output fields belongs to this decision.
+        post({ type: "decideStep", outcome: outcome, outputs: collectOutputs() });
+      });
+      return button;
+    }
+
+    function controlButton(label, id, onClick) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "tool";
+      button.id = id;
+      button.textContent = label;
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function outputFields(names) {
+      var wrapper = document.createElement("span");
+      wrapper.className = "outputs";
+      for (var i = 0; i < (names || []).length; i++) {
+        var entry = field(names[i]);
+        var control = document.createElement("input");
+        control.type = "text";
+        control.className = "control";
+        control.setAttribute("data-output", names[i]);
+        entry.appendChild(control);
+        wrapper.appendChild(entry);
+      }
+      return wrapper;
     }
 
     function field(name) {
@@ -773,12 +1010,40 @@
       return d + " L " + last.x + " " + last.y;
     }
 
+    /** A row's playthrough state when one is running, else its static state. */
+    function displayState(entry) {
+      return entry.run || entry.state;
+    }
+
     function stateIcon(row, x, y) {
       var group = svgEl("g");
-      group.appendChild(
-        svgEl("circle", { class: "state-" + row.state, cx: x, cy: y, r: ICON_SIZE }),
-      );
-      if (row.state === "run") {
+      var shown = displayState(row);
+      group.appendChild(svgEl("circle", { class: "state-" + shown, cx: x, cy: y, r: ICON_SIZE }));
+
+      if (shown === "failure") {
+        // A cross, drawn to the same weight as the check so the two read as a pair.
+        group.appendChild(
+          svgEl("path", {
+            class: "state-glyph",
+            fill: "none",
+            stroke: "var(--vscode-editor-background, #fff)",
+            "stroke-width": 1.8,
+            "stroke-linecap": "round",
+            d:
+              "M " + (x - 3) + " " + (y - 3) + " L " + (x + 3) + " " + (y + 3) +
+              " M " + (x + 3) + " " + (y - 3) + " L " + (x - 3) + " " + (y + 3),
+          }),
+        );
+        return group;
+      }
+
+      if (shown === "current") {
+        // A filled centre inside the ring: the "you are here" marker.
+        group.appendChild(svgEl("circle", { class: "state-current-dot", cx: x, cy: y, r: 3.5 }));
+        return group;
+      }
+
+      if (shown === "run" || shown === "success") {
         // A check mark, drawn rather than typed so it lines up at any font size.
         group.appendChild(
           svgEl("path", {
@@ -793,7 +1058,7 @@
               " L " + (x + 3.8) + " " + (y - 2.6),
           }),
         );
-      } else if (row.state === "unknown") {
+      } else if (shown === "unknown") {
         var glyph = text("?", { x: x, y: y + 3.2 }, "state-glyph outline");
         glyph.setAttribute("text-anchor", "middle");
         group.appendChild(glyph);
@@ -802,6 +1067,10 @@
     }
 
     var STATE_WORDS = {
+      pending: "not reached yet",
+      current: "waiting for you to say what happened",
+      success: "succeeded",
+      failure: "failed",
       run: "would run",
       skipped: "would be skipped",
       unknown: "may or may not run",
@@ -809,12 +1078,14 @@
 
     /** What a screen reader announces for a row. */
     function rowLabel(row) {
-      var parts = [row.title, STATE_WORDS[row.state] || row.state];
+      var shown = displayState(row);
+      var parts = [row.title, STATE_WORDS[shown] || shown];
       if (row.meta) {
         parts.push(row.meta);
       }
-      if (row.reason) {
-        parts.push(row.reason.replace(/`/g, ""));
+      var why = row.runReason || row.reason;
+      if (why) {
+        parts.push(why.replace(/`/g, ""));
       }
       if (row.expandable) {
         parts.push(row.expanded ? "expanded" : "collapsed");
@@ -881,7 +1152,7 @@
 
     function renderRow(row, card) {
       var group = svgEl("g", { transform: "translate(0," + row.offsetY + ")" });
-      group.setAttribute("class", "row " + row.state);
+      group.setAttribute("class", "row " + displayState(row));
       group.setAttribute("data-row-id", row.id);
       group.setAttribute("data-node-id", row.id);
       // Focusable and labelled so the graph is usable without a mouse and
@@ -934,7 +1205,7 @@
           y += STEP_HEIGHT;
           var step = row.steps[i];
           var marker = step.kind === "run" ? "▸" : step.kind === "uses" ? "◆" : "•";
-          var stepState = step.state || "run";
+          var stepState = displayState(step);
           group.appendChild(
             text(marker, { x: titleX, y: y - 5 }, "step-marker step-" + stepState),
           );
@@ -990,10 +1261,14 @@
       return group;
     }
 
-    function render(graph, simulation) {
+    function render(graph, simulation, playthrough) {
       state.graph = graph;
       state.direction = graph.direction;
-      renderHeader(graph.header, simulation);
+      state.playing = playthrough != null;
+      // While a walk is running the simulation controls would only invite changes
+      // that invalidate it, so the bar takes their place.
+      renderHeader(graph.header, state.playing ? null : simulation);
+      renderPlaythrough(playthrough);
       renderBanner(graph.warnings);
       clear(scene);
 
@@ -1193,6 +1468,20 @@
     document.getElementById("btn-refresh").addEventListener("click", function () {
       post({ type: "refresh" });
     });
+    document.getElementById("btn-play").addEventListener("click", function () {
+      if (state.playing) {
+        post({ type: "stopPlaythrough" });
+        return;
+      }
+      // Starting from a focused row walks just that job, which is the natural
+      // meaning of "play from here".
+      var focused =
+        document.activeElement && document.activeElement.getAttribute
+          ? document.activeElement.getAttribute("data-row-id")
+          : null;
+      var row = focused ? findRow(focused) : null;
+      post(row ? { type: "startPlaythrough", nodeId: row.jobId } : { type: "startPlaythrough" });
+    });
     document.getElementById("btn-expand").addEventListener("click", function () {
       post({ type: "expandAll" });
     });
@@ -1265,7 +1554,7 @@
       }
       if (message.type === "graph") {
         var isFirst = state.graph == null;
-        render(message.graph, message.simulation);
+        render(message.graph, message.simulation, message.playthrough);
         if (isFirst) {
           fitToView();
         }

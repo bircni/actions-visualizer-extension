@@ -1,0 +1,38 @@
+name: Playthrough Demo
+on:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: meta
+        name: Read version
+        run: |
+          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+      - name: Compile
+        run: make build
+      - name: Upload logs
+        if: failure()
+        run: make logs
+      - name: Clean up
+        if: always()
+        continue-on-error: true
+        run: make clean
+  publish:
+    needs: build
+    if: needs.build.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish
+        run: npm publish
+  notify:
+    needs: [build, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: echo done
