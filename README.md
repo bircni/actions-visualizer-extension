@@ -45,8 +45,11 @@ case-insensitive string equality and `&&`/`||` returning an operand), and the bu
 4. Click a job to jump to it in the YAML; `Alt`-click to expand its steps.
 5. Pan by dragging, zoom with the wheel or `+` / `-`, and press `0` to fit the graph to the view.
 
-The preview also works on a workflow draft outside a workflows directory, as long as the file has
-both `on:` and `jobs:` keys.
+The preview follows your active editor: opening another workflow file moves the existing panel rather
+than adding a second one. Switching to a file that is not a workflow leaves the graph as it was.
+
+It also works on a workflow draft outside a workflows directory, as long as the file has both `on:`
+and `jobs:` keys.
 
 ## Reading The Graph
 

@@ -54,7 +54,8 @@ src/
       evaluate.ts              evaluator, GitHub coercion rules, UNKNOWN propagation
   preview/
     previewController.ts       PURE — all VS Code calls arrive as injected lambdas
-    previewPanel.ts            the only place that touches WebviewPanel and workspace events
+    previewPanel.ts            the single panel, and the only place that touches
+                               WebviewPanel and workspace events
     previewConfig.ts           reads and clamps `actions-visualizer.*` settings
     previewTestBridge.ts       `__test.*` hook for extension-host tests
   webview/
@@ -128,21 +129,29 @@ host and posts a fully positioned graph to the webview, which only draws it. Kee
   from the width and height it is given rather than measuring text.
 - This is why layout is testable as plain Node code, with no browser and no second bundle.
 
-### 5. Purity Boundaries
+### 5. One Panel, Following The Editor
+
+There is exactly one preview panel. `onDidChangeActiveTextEditor` retargets it when the user switches
+to another workflow, and leaves it alone for anything else — the Markdown-preview model. Retargeting
+rebuilds the controller rather than reusing it, because expansion and simulation state belong to the
+workflow being shown; carrying a previous file's selected event across would be wrong. Any pending
+debounced render is dropped at the same time so it cannot fire against the new document.
+
+### 6. Purity Boundaries
 
 `src/workflow/**` and `src/preview/previewController.ts` must not `import * as vscode`. Every VS Code
 API the controller needs arrives through `PreviewDeps` as a lambda. `previewPanel.ts` is the single
 place that constructs those lambdas. When you need a new VS Code capability in the controller, add a
 field to `PreviewDeps` — do not import `vscode`.
 
-### 6. Parsing Must Never Throw
+### 7. Parsing Must Never Throw
 
 `parseWorkflow` is called on every keystroke against a file that is usually half-written. A YAML
 syntax error becomes `fatalError`; anything merely unexpected becomes a `diagnostic`. Never throw,
 and never assume a key has the shape the schema says it does — `needs:` can be a string or an array,
 `runs-on:` can be a string, an array or a map, `on:` can be all three.
 
-### 7. Testing
+### 8. Testing
 
 Tests live in `src/tests/`. Unit-test the pure modules directly; use the `vi.mock("vscode", ...)`
 pattern from `previewPanel.test.ts` and `extension.test.ts` for the wiring; use the JSDOM harness in
@@ -157,7 +166,7 @@ real pipeline — never hand-write a graph shape in the browser spec.
 an unrelated foreground token has produced unreadable text twice; the browser spec now asserts a WCAG
 contrast ratio on the header in both default themes.
 
-### 8. Code Style
+### 9. Code Style
 
 TypeScript strict, no `any`. Types are declared with `type`, not `interface`. Reuse existing
 primitives (`WorkflowModel`, `GraphModel`, `PositionedGraph`, `parseWorkflow`, `buildGraph`,
@@ -165,12 +174,12 @@ primitives (`WorkflowModel`, `GraphModel`, `PositionedGraph`, `parseWorkflow`, `
 parallel ones. PascalCase for classes,
 camelCase for functions and variables.
 
-### 9. Git and Commits
+### 10. Git and Commits
 
 Conventional Commits, scoped by subarea: `feat(graph): …`, `fix(parse): …`, `feat(webview): …`,
 `chore(deps): …`.
 
-### 10. Validate Before Committing
+### 11. Validate Before Committing
 
 `npm run validate` must pass. Fix every failure before committing.
 

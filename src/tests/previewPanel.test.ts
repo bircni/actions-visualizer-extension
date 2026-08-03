@@ -1,7 +1,7 @@
 /**
- * Covers the VS Code wiring around the controller: panel creation, live-update
- * debouncing, disposal, source reveal and SVG export. The `vscode` module is faked
- * so this runs as a plain unit test.
+ * Covers the VS Code wiring around the controller: panel creation, retargeting on
+ * editor changes, live-update debouncing, disposal, source reveal and SVG export.
+ * The `vscode` module is faked so this runs as a plain unit test.
  */
 
 import * as fs from "node:fs";
@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Listener<T> = (value: T) => void;
+type Disposable = { dispose: () => void };
 
 /** A minimal event emitter matching the shape of a `vscode.Event`. */
 function emitter<T>(): { event: (listener: Listener<T>) => Disposable; fire: (value: T) => void } {
@@ -34,11 +35,10 @@ function emitter<T>(): { event: (listener: Listener<T>) => Disposable; fire: (va
   };
 }
 
-type Disposable = { dispose: () => void };
-
 const documentChanged = emitter<{ document: unknown }>();
 const documentClosed = emitter<unknown>();
 const configChanged = emitter<{ affectsConfiguration: (section: string) => boolean }>();
+const activeEditorChanged = emitter<{ document: unknown } | undefined>();
 
 let configValues: Record<string, unknown> = {};
 let saveDialogResult: { fsPath: string } | undefined;
@@ -58,11 +58,11 @@ type FakePanel = {
   webview: {
     cspSource: string;
     html: string;
-    options: unknown;
     asWebviewUri: (uri: unknown) => { toString: () => string };
     postMessage: ReturnType<typeof vi.fn>;
     onDidReceiveMessage: (listener: Listener<unknown>) => Disposable;
   };
+  title: string;
   active: boolean;
   reveal: ReturnType<typeof vi.fn>;
   dispose: () => void;
@@ -75,7 +75,7 @@ type FakePanel = {
 
 let createdPanels: FakePanel[] = [];
 
-function makePanel(): FakePanel {
+function makePanel(title: string): FakePanel {
   const messages = emitter<unknown>();
   const disposal = emitter<void>();
   const viewState = emitter<void>();
@@ -83,11 +83,11 @@ function makePanel(): FakePanel {
     webview: {
       cspSource: "vscode-resource://test",
       html: "",
-      options: {},
       asWebviewUri: (uri) => ({ toString: () => `webview:${String(uri)}` }),
       postMessage: vi.fn(() => true),
       onDidReceiveMessage: messages.event,
     },
+    title,
     active: true,
     reveal: vi.fn(),
     dispose: () => {
@@ -126,8 +126,8 @@ vi.mock("vscode", () => ({
   ViewColumn: { One: 1, Two: 2 },
   TextEditorRevealType: { InCenterIfOutsideViewport: 2 },
   window: {
-    createWebviewPanel: () => {
-      const panel = makePanel();
+    createWebviewPanel: (_type: string, title: string) => {
+      const panel = makePanel(title);
       createdPanels.push(panel);
       return panel;
     },
@@ -149,6 +149,7 @@ vi.mock("vscode", () => ({
     get visibleTextEditors() {
       return visibleEditors;
     },
+    onDidChangeActiveTextEditor: activeEditorChanged.event,
   },
   workspace: {
     getConfiguration: () => ({ get: (key: string) => configValues[key] }),
@@ -175,6 +176,10 @@ const FIXTURE = fs.readFileSync(
   path.join(process.cwd(), ".fixtures", "workflows", "fan-out.yml"),
   "utf8",
 );
+const OTHER = fs.readFileSync(
+  path.join(process.cwd(), ".fixtures", "workflows", "simple.yml"),
+  "utf8",
+);
 
 type FakeDocument = {
   uri: { toString: () => string; fsPath: string; path: string };
@@ -191,6 +196,12 @@ function fakeDocument(
     getText: () => text,
     positionAt: (offset: number) => ({ offset }),
   };
+}
+
+/** The message the panel most recently posted to the webview. */
+function lastPosted(panel: FakePanel | undefined): { type: string } | undefined {
+  const calls = panel?.webview.postMessage.mock.calls ?? [];
+  return calls.at(-1)?.[0] as { type: string } | undefined;
 }
 
 let manager: InstanceType<typeof PreviewManager>;
@@ -215,17 +226,16 @@ afterEach(() => {
 
 describe("PreviewManager panel lifecycle", () => {
   it("creates a panel, fills in the HTML and renders once", async () => {
-    const document = fakeDocument();
-    await manager.show(document as never, 2);
+    await manager.show(fakeDocument() as never, 2);
     const panel = createdPanels[0];
     expect(createdPanels).toHaveLength(1);
     expect(panel?.webview.html).toContain("vscode-resource://test");
     expect(panel?.webview.html).not.toContain("__CSP_SOURCE__");
-    const posted = panel?.webview.postMessage.mock.calls[0]?.[0] as { type: string };
-    expect(posted.type).toBe("graph");
+    expect(panel?.title).toBe("Graph: fan-out.yml");
+    expect(lastPosted(panel)?.type).toBe("graph");
   });
 
-  it("reuses and reveals the existing panel for the same document", async () => {
+  it("reveals the existing panel instead of opening a second one", async () => {
     const document = fakeDocument();
     await manager.show(document as never, 2);
     await manager.show(document as never, 2);
@@ -233,13 +243,7 @@ describe("PreviewManager panel lifecycle", () => {
     expect(createdPanels[0]?.reveal).toHaveBeenCalledWith(2, true);
   });
 
-  it("opens a separate panel per document", async () => {
-    await manager.show(fakeDocument() as never, 2);
-    await manager.show(fakeDocument(FIXTURE, "/repo/.github/workflows/other.yml") as never, 2);
-    expect(createdPanels).toHaveLength(2);
-  });
-
-  it("forgets a panel once it is disposed", async () => {
+  it("opens a fresh panel once the old one is disposed", async () => {
     const document = fakeDocument();
     await manager.show(document as never, 2);
     createdPanels[0]?.dispose();
@@ -247,18 +251,23 @@ describe("PreviewManager panel lifecycle", () => {
     expect(createdPanels).toHaveLength(2);
   });
 
-  it("closes the panel when its document closes", async () => {
+  it("closes the panel when the previewed document closes", async () => {
     const document = fakeDocument();
     await manager.show(document as never, 2);
     documentClosed.fire(document);
     expect(createdPanels[0]?.disposed).toBe(true);
   });
 
-  it("disposes every panel when the manager goes away", async () => {
+  it("keeps the panel when some other document closes", async () => {
     await manager.show(fakeDocument() as never, 2);
-    await manager.show(fakeDocument(FIXTURE, "/repo/.github/workflows/other.yml") as never, 2);
+    documentClosed.fire(fakeDocument(OTHER, "/repo/.github/workflows/other.yml"));
+    expect(createdPanels[0]?.disposed).toBe(false);
+  });
+
+  it("disposes the panel when the manager goes away", async () => {
+    await manager.show(fakeDocument() as never, 2);
     manager.dispose();
-    expect(createdPanels.every((panel) => panel.disposed)).toBe(true);
+    expect(createdPanels[0]?.disposed).toBe(true);
   });
 
   it("tracks focus so the export command knows when it applies", async () => {
@@ -267,6 +276,111 @@ describe("PreviewManager panel lifecycle", () => {
       command: "setContext",
       args: ["actionsVisualizer.previewFocused", true],
     });
+  });
+});
+
+describe("PreviewManager retargeting", () => {
+  it("follows the active editor onto another workflow", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    const panel = createdPanels[0];
+    panel?.webview.postMessage.mockClear();
+
+    const other = fakeDocument(OTHER, "/repo/.github/workflows/simple.yml");
+    activeEditorChanged.fire({ document: other });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Still one panel, now pointed at the other file.
+    expect(createdPanels).toHaveLength(1);
+    expect(panel?.title).toBe("Graph: simple.yml");
+    const posted = lastPosted(panel) as { type: string; graph: { header: { fileName: string } } };
+    expect(posted.graph.header.fileName).toBe("simple.yml");
+  });
+
+  it("ignores an editor that is not a workflow", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    const panel = createdPanels[0];
+    panel?.webview.postMessage.mockClear();
+
+    activeEditorChanged.fire({
+      document: fakeDocument("services:\n  db: {}\n", "/repo/docker-compose.yml"),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The preview keeps showing what it had.
+    expect(panel?.title).toBe("Graph: fan-out.yml");
+    expect(panel?.webview.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("accepts a workflow-shaped draft outside a workflows directory", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    const panel = createdPanels[0];
+    activeEditorChanged.fire({ document: fakeDocument(OTHER, "/tmp/scratch.yml") });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(panel?.title).toBe("Graph: scratch.yml");
+  });
+
+  it("does nothing when the editor change is to the document already shown", async () => {
+    const document = fakeDocument();
+    await manager.show(document as never, 2);
+    const panel = createdPanels[0];
+    panel?.webview.postMessage.mockClear();
+
+    activeEditorChanged.fire({ document });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(panel?.webview.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when no preview is open", async () => {
+    activeEditorChanged.fire({ document: fakeDocument() });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(createdPanels).toHaveLength(0);
+  });
+
+  it("survives the active editor closing entirely", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    // VS Code really does fire `undefined` here, when the last editor closes.
+    // eslint-disable-next-line unicorn/no-useless-undefined
+    activeEditorChanged.fire(undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(createdPanels[0]?.disposed).toBe(false);
+  });
+
+  it("retargets through `show` too", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    await manager.show(fakeDocument(OTHER, "/repo/.github/workflows/simple.yml") as never, 2);
+    expect(createdPanels).toHaveLength(1);
+    expect(createdPanels[0]?.title).toBe("Graph: simple.yml");
+  });
+
+  it("routes webview messages to the retargeted document", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    const panel = createdPanels[0];
+
+    const other = fakeDocument(OTHER, "/repo/.github/workflows/simple.yml");
+    activeEditorChanged.fire({ document: other });
+    await vi.advanceTimersByTimeAsync(0);
+
+    panel?.send({ type: "revealSource", offset: 5 });
+    await vi.advanceTimersByTimeAsync(0);
+    // The reveal must land in the new document, not the one the panel opened with.
+    expect(shownDocuments).toEqual([other]);
+  });
+
+  it("drops a pending re-render when it retargets", async () => {
+    const document = fakeDocument();
+    await manager.show(document as never, 2);
+    const panel = createdPanels[0];
+
+    documentChanged.fire({ document });
+    activeEditorChanged.fire({
+      document: fakeDocument(OTHER, "/repo/.github/workflows/simple.yml"),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    panel?.webview.postMessage.mockClear();
+
+    // The debounce from the old document must not fire against the new one.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(panel?.webview.postMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -309,16 +423,16 @@ describe("PreviewManager live update", () => {
     expect(panel?.webview.postMessage).not.toHaveBeenCalled();
   });
 
-  it("ignores edits to documents with no preview", async () => {
+  it("ignores edits to documents the preview is not showing", async () => {
     await manager.show(fakeDocument() as never, 2);
     const panel = createdPanels[0];
     panel?.webview.postMessage.mockClear();
-    documentChanged.fire({ document: fakeDocument(FIXTURE, "/repo/other.yml") });
+    documentChanged.fire({ document: fakeDocument(OTHER, "/repo/other.yml") });
     await vi.advanceTimersByTimeAsync(1000);
     expect(panel?.webview.postMessage).not.toHaveBeenCalled();
   });
 
-  it("re-renders every panel when settings change", async () => {
+  it("re-renders when settings change", async () => {
     await manager.show(fakeDocument() as never, 2);
     const panel = createdPanels[0];
     panel?.webview.postMessage.mockClear();
@@ -388,7 +502,7 @@ describe("PreviewManager export", () => {
     expect(warnings).toEqual(["Open a workflow graph before exporting it."]);
   });
 
-  it("asks the focused panel for its SVG and writes it", async () => {
+  it("asks the panel for its SVG and writes it", async () => {
     await manager.show(fakeDocument() as never, 2);
     const panel = createdPanels[0];
     await manager.exportActive();
@@ -407,13 +521,10 @@ describe("PreviewManager export", () => {
     expect(writtenFiles).toEqual([]);
   });
 
-  it("falls back to the only open panel when none is focused", async () => {
+  it("warns again once the panel has been disposed", async () => {
     await manager.show(fakeDocument() as never, 2);
-    const panel = createdPanels[0];
-    if (panel) {
-      panel.active = false;
-    }
+    createdPanels[0]?.dispose();
     await manager.exportActive();
-    expect(panel?.webview.postMessage).toHaveBeenCalledWith({ type: "requestExport" });
+    expect(warnings).toEqual(["Open a workflow graph before exporting it."]);
   });
 });

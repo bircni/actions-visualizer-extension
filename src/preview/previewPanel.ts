@@ -1,14 +1,19 @@
 /**
  * Webview panel lifecycle for the workflow graph preview.
  *
- * One panel per workflow document, keyed by URI, mirroring how the built-in
- * Markdown preview behaves. All the interesting logic lives in
- * {@link createPreviewController}; this module only wires VS Code APIs into it.
+ * There is a single preview panel that follows the active editor, mirroring how
+ * the built-in Markdown preview behaves: switching to another workflow file
+ * retargets the panel rather than opening a second one. Switching to a file that
+ * is not a workflow leaves the preview showing what it already had.
+ *
+ * All the interesting logic lives in {@link createPreviewController}; this module
+ * only wires VS Code APIs into it.
  */
 
 import * as vscode from "vscode";
 import { logger } from "../logger.js";
 import { getInitialHtml } from "../webview/content.js";
+import { isWorkflowFile, looksLikeWorkflow } from "../workflow/detect.js";
 import { readPreviewSettings } from "./previewConfig.js";
 import {
   createPreviewController,
@@ -20,12 +25,6 @@ import { clearActivePreviewSession, setActivePreviewSession } from "./previewTes
 const VIEW_TYPE = "actionsVisualizer.preview";
 /** Context key that gates the export command in the command palette. */
 const FOCUS_CONTEXT_KEY = "actionsVisualizer.previewFocused";
-
-type PreviewEntry = {
-  panel: vscode.WebviewPanel;
-  controller: PreviewController;
-  document: vscode.TextDocument;
-};
 
 /** Writes an SVG to a user-chosen path, returning the path or undefined if cancelled. */
 async function promptAndWriteSvg(
@@ -63,11 +62,20 @@ async function revealOffset(document: vscode.TextDocument, offset: number): Prom
   editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 }
 
-/** Owns every open preview panel and keeps them in sync with their documents. */
+/** True when the preview should be willing to render this document. */
+function isPreviewable(document: vscode.TextDocument): boolean {
+  return isWorkflowFile(document.uri.fsPath) || looksLikeWorkflow(document.getText());
+}
+
+/** Owns the preview panel and keeps it pointed at the right document. */
 export class PreviewManager implements vscode.Disposable {
-  private readonly entries = new Map<string, PreviewEntry>();
+  private panel: vscode.WebviewPanel | undefined;
+  private controller: PreviewController | undefined;
+  private document: vscode.TextDocument | undefined;
+
   private readonly disposables: vscode.Disposable[] = [];
-  private readonly pendingRenders = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly panelSubscriptions: vscode.Disposable[] = [];
+  private pendingRender: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {
     this.disposables.push(
@@ -75,31 +83,44 @@ export class PreviewManager implements vscode.Disposable {
         this.scheduleRender(event.document);
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
-        this.entries.get(document.uri.toString())?.panel.dispose();
+        if (this.isCurrent(document)) {
+          this.panel?.dispose();
+        }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("actions-visualizer")) {
-          for (const entry of this.entries.values()) {
-            void entry.controller.render();
-          }
+          void this.controller?.render();
+        }
+      }),
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        // Follow the editor, but only onto another workflow: switching to an
+        // unrelated file should leave the preview showing what it had.
+        if (editor && this.panel && isPreviewable(editor.document)) {
+          void this.retarget(editor.document);
         }
       }),
     );
   }
 
-  /** Opens or focuses the preview for a document. */
+  private isCurrent(document: vscode.TextDocument): boolean {
+    return this.document?.uri.toString() === document.uri.toString();
+  }
+
+  private static titleFor(document: vscode.TextDocument): string {
+    return `Graph: ${document.uri.path.split("/").pop() ?? "workflow"}`;
+  }
+
+  /** Opens the preview, or points the existing one at this document. */
   public async show(document: vscode.TextDocument, column: vscode.ViewColumn): Promise<void> {
-    const key = document.uri.toString();
-    const existing = this.entries.get(key);
-    if (existing) {
-      existing.panel.reveal(column, true);
-      await existing.controller.render();
+    if (this.panel) {
+      await this.retarget(document);
+      this.panel.reveal(column, true);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
       VIEW_TYPE,
-      `Graph: ${document.uri.path.split("/").pop() ?? "workflow"}`,
+      PreviewManager.titleFor(document),
       { viewColumn: column, preserveFocus: true },
       {
         enableScripts: true,
@@ -107,12 +128,70 @@ export class PreviewManager implements vscode.Disposable {
         localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist", "webview")],
       },
     );
+    this.panel = panel;
+    this.document = document;
 
     const codiconsStyleHref = panel.webview
       .asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "codicon.css"))
       .toString();
     panel.webview.html = getInitialHtml(panel.webview.cspSource, { codiconsStyleHref });
 
+    this.panelSubscriptions.push(
+      // Routed through `this.controller` rather than a captured one, so messages
+      // always reach the controller for whatever document is current now.
+      panel.webview.onDidReceiveMessage((message: unknown) => {
+        void this.controller?.handleMessage(message as WebviewHostMessage);
+      }),
+      panel.onDidChangeViewState(() => {
+        void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, panel.active);
+      }),
+    );
+
+    panel.onDidDispose(() => {
+      this.clearPendingRender();
+      for (const subscription of this.panelSubscriptions) {
+        subscription.dispose();
+      }
+      this.panelSubscriptions.length = 0;
+      this.panel = undefined;
+      this.controller = undefined;
+      this.document = undefined;
+      clearActivePreviewSession(panel);
+      void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, false);
+    });
+
+    void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, true);
+    this.bindController(document);
+    logger.info("Opened workflow graph preview", { path: document.uri.fsPath });
+    await this.controller?.render();
+  }
+
+  /**
+   * Points the open panel at a different document.
+   *
+   * The controller is rebuilt rather than reused: expansion and simulation state
+   * belong to the workflow being shown, and carrying a previous file's selected
+   * event over to a new one would be wrong.
+   */
+  private async retarget(document: vscode.TextDocument): Promise<void> {
+    const panel = this.panel;
+    if (!panel || this.isCurrent(document)) {
+      return;
+    }
+    this.clearPendingRender();
+    this.document = document;
+    panel.title = PreviewManager.titleFor(document);
+    this.bindController(document);
+    logger.info("Retargeted workflow graph preview", { path: document.uri.fsPath });
+    await this.controller?.render();
+  }
+
+  /** Builds a controller bound to `document` and registers it for the test bridge. */
+  private bindController(document: vscode.TextDocument): void {
+    const panel = this.panel;
+    if (!panel) {
+      return;
+    }
     const controller = createPreviewController({
       readText: () => document.getText(),
       readPath: () => document.uri.fsPath,
@@ -127,85 +206,48 @@ export class PreviewManager implements vscode.Disposable {
         logger.error(message, error);
       },
     });
-
-    const entry: PreviewEntry = { panel, controller, document };
-    this.entries.set(key, entry);
+    this.controller = controller;
     setActivePreviewSession({ owner: panel, controller });
-
-    const subscriptions: vscode.Disposable[] = [
-      panel.webview.onDidReceiveMessage((message: unknown) => {
-        void controller.handleMessage(message as WebviewHostMessage);
-      }),
-      panel.onDidChangeViewState(() => {
-        void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, panel.active);
-      }),
-    ];
-
-    panel.onDidDispose(() => {
-      for (const subscription of subscriptions) {
-        subscription.dispose();
-      }
-      const timer = this.pendingRenders.get(key);
-      if (timer) {
-        clearTimeout(timer);
-        this.pendingRenders.delete(key);
-      }
-      this.entries.delete(key);
-      clearActivePreviewSession(panel);
-      void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, false);
-    });
-
-    void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, true);
-    logger.info("Opened workflow graph preview", { path: document.uri.fsPath });
-    await controller.render();
   }
 
-  /** Asks the focused preview to serialise and save its SVG. */
+  /** Asks the preview to serialise and save its SVG. */
   public async exportActive(): Promise<void> {
-    const entry = [...this.entries.values()].find((candidate) => candidate.panel.active);
-    const target = entry ?? [...this.entries.values()][0];
-    if (!target) {
+    if (!this.controller) {
       void vscode.window.showWarningMessage("Open a workflow graph before exporting it.");
       return;
     }
-    await target.controller.requestExport();
+    await this.controller.requestExport();
   }
 
   /** Re-renders after an edit, debounced by the configured delay. */
   private scheduleRender(document: vscode.TextDocument): void {
-    const key = document.uri.toString();
-    const entry = this.entries.get(key);
-    if (!entry) {
+    if (!this.isCurrent(document) || !this.controller) {
       return;
     }
     const settings = readPreviewSettings(document.uri);
     if (!settings.liveUpdate) {
       return;
     }
-    const existing = this.pendingRenders.get(key);
-    if (existing) {
-      clearTimeout(existing);
+    this.clearPendingRender();
+    this.pendingRender = setTimeout(() => {
+      this.pendingRender = undefined;
+      void this.controller?.render();
+    }, settings.updateDelayMs);
+  }
+
+  private clearPendingRender(): void {
+    if (this.pendingRender) {
+      clearTimeout(this.pendingRender);
+      this.pendingRender = undefined;
     }
-    this.pendingRenders.set(
-      key,
-      setTimeout(() => {
-        this.pendingRenders.delete(key);
-        void entry.controller.render();
-      }, settings.updateDelayMs),
-    );
   }
 
   public dispose(): void {
-    for (const timer of this.pendingRenders.values()) {
-      clearTimeout(timer);
-    }
-    this.pendingRenders.clear();
-    // Disposing a panel deletes its entry, so snapshot the list before iterating.
-    for (const entry of Array.from(this.entries.values())) {
-      entry.panel.dispose();
-    }
+    this.clearPendingRender();
+    this.panel?.dispose();
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
+    this.disposables.length = 0;
   }
 }

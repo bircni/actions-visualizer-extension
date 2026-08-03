@@ -245,6 +245,43 @@ describe("Actions Visualizer extension host", function () {
     assert.strictEqual(rows(graph).length, 2);
   });
 
+  it("follows the active editor onto another workflow", async () => {
+    await openWorkflow("first.yml", FAN_OUT);
+    await vscode.commands.executeCommand("actionsVisualizer.showPreviewToSide");
+    const first = await waitForGraph();
+    assert.strictEqual(first.header.fileName, "first.yml");
+
+    // Opening a second workflow should move the existing preview, not add one.
+    await openWorkflow(
+      "second.yml",
+      ["name: Second", "on: push", "jobs:", "  only:", "    steps: []", ""].join("\n"),
+    );
+    const second = await waitForGraph((state) => state.graph?.header.fileName === "second.yml");
+    assert.strictEqual(second.header.title, "Second");
+    assert.deepStrictEqual(
+      rows(second).map((row) => row.jobId),
+      ["only"],
+    );
+  });
+
+  it("leaves the preview alone when a non-workflow file is opened", async () => {
+    await openWorkflow("kept.yml", FAN_OUT);
+    await vscode.commands.executeCommand("actionsVisualizer.showPreviewToSide");
+    await waitForGraph((state) => state.graph?.header.fileName === "kept.yml");
+
+    const plain = path.join(tempDir, "notes.md");
+    fs.writeFileSync(plain, "# not a workflow\n", "utf8");
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(plain));
+    await vscode.window.showTextDocument(document, { preview: false });
+
+    // Give the editor change a chance to be mishandled before asserting it was not.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+    const state = await getState();
+    assert.strictEqual(state?.graph?.header.fileName, "kept.yml");
+  });
+
   it("re-evaluates the graph when the simulated event changes", async () => {
     await openWorkflow(
       "conditional.yml",
