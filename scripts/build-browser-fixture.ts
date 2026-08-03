@@ -13,6 +13,7 @@ import { parseWorkflow } from "../src/workflow/parse.js";
 import {
   inputsFor,
   refChoicesFor,
+  unresolvedPaths,
   withInputDefaults,
   type Simulation,
 } from "../src/workflow/simulate.js";
@@ -23,7 +24,7 @@ const fixtureDir = path.join(rootDir, ".fixtures", "workflows");
 const targetDir = path.join(rootDir, ".tmp");
 const targetPath = path.join(targetDir, "browser-fixture.json");
 
-type Case = { file: string; event?: string; expanded?: string[] };
+type Case = { file: string; event?: string; expanded?: string[]; pinned?: Record<string, string> };
 
 const CASES: Record<string, Case> = {
   fanOut: { file: "fan-out.yml" },
@@ -35,6 +36,9 @@ const CASES: Record<string, Case> = {
   conditionalPr: { file: "conditional.yml", event: "pull_request" },
   missingNeeds: { file: "missing-needs.yml" },
   broken: { file: "broken.yml" },
+  gated: { file: "unknown-condition.yml" },
+  gatedPinned: { file: "unknown-condition.yml", pinned: { "secrets.DEPLOY_KEY": "abc" } },
+  stepConditions: { file: "step-conditions.yml", event: "pull_request", expanded: ["row:a"] },
 };
 
 function build(testCase: Case): unknown {
@@ -46,6 +50,7 @@ function build(testCase: Case): unknown {
     event,
     ref: refChoicesFor(trigger)[0]?.ref,
     inputs: {},
+    pinned: testCase.pinned ?? {},
   };
   const expanded = testCase.expanded ?? [];
 
@@ -65,6 +70,13 @@ function build(testCase: Case): unknown {
       refChoices: refChoicesFor(trigger),
       inputs: inputsFor(model, event),
       values: withInputDefaults(model, simulation),
+      pinnable: [
+        ...new Set([
+          ...unresolvedPaths(model, simulation),
+          ...Object.keys(simulation.pinned ?? {}),
+        ]),
+      ].toSorted(),
+      pinned: simulation.pinned ?? {},
     },
   };
 }

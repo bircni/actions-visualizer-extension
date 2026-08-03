@@ -242,7 +242,84 @@ describe("createPreviewController simulation", () => {
       event: "pull_request",
       ref: "refs/heads/main",
       inputs: {},
+      pinned: {},
     });
+  });
+});
+
+describe("createPreviewController pinning", () => {
+  const GATED = [
+    "on: push",
+    "jobs:",
+    "  deploy:",
+    "    if: secrets.DEPLOY_KEY != ''",
+    "    steps:",
+    "      - run: deploy",
+  ].join("\n");
+
+  it("offers every unresolved path the conditions depend on", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.render();
+    expect(lastGraph(h.posted).simulation.pinnable).toEqual(["secrets.DEPLOY_KEY"]);
+    expect(rowStates(h.posted)["deploy"]).toBe("unknown");
+  });
+
+  it("decides the condition once a value is pinned", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.render();
+
+    await controller.handleMessage({
+      type: "setPin",
+      name: "secrets.DEPLOY_KEY",
+      input: "abc123",
+    });
+    expect(rowStates(h.posted)["deploy"]).toBe("run");
+    expect(lastGraph(h.posted).simulation.pinned).toEqual({ "secrets.DEPLOY_KEY": "abc123" });
+  });
+
+  it("treats an empty string as a real pin, not a clear", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "setPin", name: "secrets.DEPLOY_KEY", input: "" });
+    // `secrets.X != ''` is false for an empty secret, which is a decision.
+    expect(rowStates(h.posted)["deploy"]).toBe("skipped");
+  });
+
+  it("keeps a pinned path listed so its field does not vanish", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "setPin", name: "secrets.DEPLOY_KEY", input: "x" });
+    expect(lastGraph(h.posted).simulation.pinnable).toEqual(["secrets.DEPLOY_KEY"]);
+  });
+
+  it("clears a pin when no value is sent", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "setPin", name: "secrets.DEPLOY_KEY", input: "x" });
+    expect(rowStates(h.posted)["deploy"]).toBe("run");
+
+    await controller.handleMessage({ type: "setPin", name: "secrets.DEPLOY_KEY" });
+    expect(rowStates(h.posted)["deploy"]).toBe("unknown");
+    expect(lastGraph(h.posted).simulation.pinned).toEqual({});
+  });
+
+  it("ignores a pin with no path", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.render();
+    await controller.handleMessage({ type: "setPin", input: "x" });
+    expect(h.posted.filter((message) => message.type === "graph")).toHaveLength(1);
+  });
+
+  it("drops pins when the simulated event changes", async () => {
+    const h = harness(GATED);
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "setPin", name: "secrets.DEPLOY_KEY", input: "x" });
+    await controller.handleMessage({ type: "setEvent", value: "push" });
+    // Pins belong to the contexts of the event they were made under.
+    expect(lastGraph(h.posted).simulation.pinned).toEqual({});
   });
 });
 

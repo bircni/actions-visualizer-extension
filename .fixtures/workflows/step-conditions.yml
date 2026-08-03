@@ -1,0 +1,9 @@
+name: Step Conditions
+on: [push, pull_request]
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: always
+      - run: push only
+        if: github.event_name == 'push'
