@@ -1,15 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <rect x="1" y="1" width="126" height="126" rx="24" fill="#0f3d99" />
-  <g fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round">
-    <path d="M40 64 H58" />
-    <path d="M76 44 H92" />
-    <path d="M76 84 H92" />
-    <path d="M58 64 Q67 64 67 50 L67 44 H76" />
-    <path d="M58 64 Q67 64 67 78 L67 84 H76" />
+  <!--
+    A fan-out: one job feeding two. Three filled dots and two connectors stay
+    legible down to the 32px the marketplace list uses, where a full graph
+    with cards would turn to mush.
+  -->
+  <rect x="1" y="1" width="126" height="126" rx="28" fill="#0969da" />
+  <g fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round">
+    <path d="M 42 64 H 58 Q 72 64 72 46 V 40 H 84" />
+    <path d="M 42 64 H 58 Q 72 64 72 82 V 88 H 84" />
   </g>
   <g fill="#ffffff">
-    <rect x="16" y="52" width="26" height="24" rx="6" />
-    <rect x="90" y="32" width="24" height="24" rx="6" />
-    <rect x="90" y="72" width="24" height="24" rx="6" />
+    <circle cx="34" cy="64" r="13" />
+    <circle cx="94" cy="40" r="13" />
+    <circle cx="94" cy="88" r="13" />
   </g>
 </svg>
