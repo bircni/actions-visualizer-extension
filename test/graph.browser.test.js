@@ -445,4 +445,34 @@ test.describe("workflow graph webview", () => {
     await expect(page.locator(".row-step.step-skipped")).toHaveCount(1);
     await expect(page.locator(".row-step.step-run")).toHaveCount(1);
   });
+
+  test("lets the ref be typed and suggests the declared filters", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "filtered");
+    await resetPosted(page);
+
+    const input = page.locator("#simulation input.ref");
+    await expect(input).toHaveValue("refs/heads/main");
+    await expect(page.locator("#ref-choices option")).toHaveCount(2);
+
+    await input.fill("refs/heads/topic");
+    await input.blur();
+    expect(await page.evaluate(() => window.__posted)).toContainEqual({
+      type: "setRef",
+      value: "refs/heads/topic",
+    });
+  });
+
+  test("says so when the ref would not fire the workflow", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "filtered");
+    await expect(page.locator("#banner")).toBeHidden();
+    await expect(page.locator(".row.skipped")).toHaveCount(0);
+
+    await sendGraph(page, "filteredMiss");
+    await expect(page.locator("#banner")).toBeVisible();
+    await expect(page.locator("#banner")).toContainText("would not fire");
+    // Nothing runs, so every row is dimmed.
+    await expect(page.locator(".row.skipped")).toHaveCount(2);
+  });
 });

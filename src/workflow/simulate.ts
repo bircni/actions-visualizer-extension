@@ -15,6 +15,7 @@ import {
   type EvaluationContexts,
   type ExprValue,
 } from "./expression/evaluate.js";
+import { isTagRef, refMatchesFilters, refName, type RefFilterResult } from "./filters.js";
 import type {
   EnvBlock,
   WorkflowInput,
@@ -116,10 +117,6 @@ export function withInputDefaults(
   return resolved;
 }
 
-function refName(ref: string): string {
-  return ref.replace(/^refs\/(?:heads|tags)\//, "");
-}
-
 /**
  * Resolves an `env:` block into context values.
  *
@@ -177,7 +174,7 @@ export function buildContexts(
   if (simulation.ref != null) {
     github["ref"] = simulation.ref;
     github["ref_name"] = refName(simulation.ref);
-    github["ref_type"] = simulation.ref.startsWith("refs/tags/") ? "tag" : "branch";
+    github["ref_type"] = isTagRef(simulation.ref) ? "tag" : "branch";
   }
   // `github.event.inputs` is the older spelling of `inputs` for workflow_dispatch,
   // and plenty of real workflows still use it.
@@ -214,6 +211,26 @@ export function buildContexts(
 
   applyPinned(contexts, simulation.pinned ?? {});
   return contexts;
+}
+
+/**
+ * Whether the simulated event would fire at all for the simulated ref.
+ *
+ * A workflow filtered to `branches: [main]` does not run for `refs/heads/topic`,
+ * and one filtered to `tags:` only does not run for branch pushes. Without this
+ * the preview would happily show every job running for a ref that could never
+ * have triggered the workflow.
+ */
+export function triggerFires(model: WorkflowModel, simulation: Simulation): RefFilterResult {
+  const trigger = model.triggers.find((candidate) => candidate.event === simulation.event);
+  if (trigger == null || simulation.ref == null) {
+    return { matches: true };
+  }
+  // Only ref-filtered events can fail to fire on a ref basis.
+  if (trigger.branches.length === 0 && trigger.tags.length === 0) {
+    return { matches: true };
+  }
+  return refMatchesFilters(simulation.ref, { branches: trigger.branches, tags: trigger.tags });
 }
 
 /**
@@ -281,8 +298,22 @@ export function simulateJobs(
   model: WorkflowModel,
   simulation: Simulation,
 ): Map<string, JobSimulation> {
-  const jobContexts = buildContexts(model, simulation, { scope: "job" });
   const results = new Map<string, JobSimulation>();
+
+  const fires = triggerFires(model, simulation);
+  if (!fires.matches) {
+    // The event would never fire for this ref, so nothing runs.
+    for (const job of model.jobs) {
+      results.set(job.id, {
+        state: "skipped",
+        reason: `\`${simulation.event ?? "this event"}\` does not fire for this ref: ${fires.reason ?? ""}`,
+        steps: job.steps.map(() => "skipped"),
+      });
+    }
+    return results;
+  }
+
+  const jobContexts = buildContexts(model, simulation, { scope: "job" });
 
   // Pass 1: each job's own condition.
   for (const job of model.jobs) {

@@ -171,6 +171,12 @@
   }
 
   /* A pinned value is a stand-in for something only a real run would know. */
+  .control.ref {
+    min-width: 150px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.92em;
+  }
+
   .field.pin > .name {
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: 0.92em;
@@ -576,25 +582,32 @@
 
       var hasControls = false;
 
-      if (simulation.refChoices && simulation.refChoices.length > 1) {
+      if (simulation.ref) {
         hasControls = true;
         var refField = field("ref");
-        var refSelect = document.createElement("select");
-        refSelect.className = "control";
-        for (var i = 0; i < simulation.refChoices.length; i++) {
-          var choice = simulation.refChoices[i];
-          var option = document.createElement("option");
-          option.value = choice.ref;
-          option.textContent = choice.label;
-          if (choice.ref === simulation.ref) {
-            option.selected = true;
-          }
-          refSelect.appendChild(option);
-        }
-        refSelect.addEventListener("change", function () {
-          post({ type: "setRef", value: refSelect.value });
+        // Editable rather than a fixed list: typing a ref the filters reject is
+        // how you find out the workflow would not fire at all.
+        var refInput = document.createElement("input");
+        refInput.type = "text";
+        refInput.className = "control ref";
+        refInput.value = simulation.ref;
+        refInput.setAttribute("list", "ref-choices");
+        refInput.addEventListener("change", function () {
+          post({ type: "setRef", value: refInput.value });
         });
-        refField.appendChild(refSelect);
+
+        var list = document.createElement("datalist");
+        list.id = "ref-choices";
+        var choices = simulation.refChoices || [];
+        for (var i = 0; i < choices.length; i++) {
+          var option = document.createElement("option");
+          option.value = choices[i].ref;
+          option.textContent = choices[i].label;
+          list.appendChild(option);
+        }
+
+        refField.appendChild(refInput);
+        refField.appendChild(list);
         simulationEl.appendChild(refField);
       }
 

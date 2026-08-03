@@ -24,7 +24,13 @@ const fixtureDir = path.join(rootDir, ".fixtures", "workflows");
 const targetDir = path.join(rootDir, ".tmp");
 const targetPath = path.join(targetDir, "browser-fixture.json");
 
-type Case = { file: string; event?: string; expanded?: string[]; pinned?: Record<string, string> };
+type Case = {
+  file: string;
+  event?: string;
+  expanded?: string[];
+  pinned?: Record<string, string>;
+  ref?: string;
+};
 
 const CASES: Record<string, Case> = {
   fanOut: { file: "fan-out.yml" },
@@ -39,6 +45,8 @@ const CASES: Record<string, Case> = {
   gated: { file: "unknown-condition.yml" },
   gatedPinned: { file: "unknown-condition.yml", pinned: { "secrets.DEPLOY_KEY": "abc" } },
   stepConditions: { file: "step-conditions.yml", event: "pull_request", expanded: ["row:a"] },
+  filtered: { file: "filtered.yml" },
+  filteredMiss: { file: "filtered.yml", ref: "refs/heads/topic" },
 };
 
 function build(testCase: Case): unknown {
@@ -48,7 +56,7 @@ function build(testCase: Case): unknown {
   const trigger = model.triggers.find((candidate) => candidate.event === event);
   const simulation: Simulation = {
     event,
-    ref: refChoicesFor(trigger)[0]?.ref,
+    ref: testCase.ref ?? refChoicesFor(trigger)[0]?.ref,
     inputs: {},
     pinned: testCase.pinned ?? {},
   };

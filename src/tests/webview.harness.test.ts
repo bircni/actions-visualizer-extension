@@ -39,6 +39,7 @@ function payload(
     expanded?: string[];
     inputs?: Simulation["inputs"];
     pinned?: Record<string, string>;
+    ref?: string;
   } = {},
 ): Payload {
   const text = fs.readFileSync(path.join(FIXTURE_DIR, name), "utf8");
@@ -47,7 +48,7 @@ function payload(
   const trigger = model.triggers.find((candidate) => candidate.event === event);
   const simulation: Simulation = {
     event,
-    ref: refChoicesFor(trigger)[0]?.ref,
+    ref: options.ref ?? refChoicesFor(trigger)[0]?.ref,
     inputs: options.inputs ?? {},
     pinned: options.pinned ?? {},
   };
@@ -185,19 +186,26 @@ describe("webview header", () => {
     expect(harness.posted).toContainEqual({ type: "setEvent", value: "pull_request" });
   });
 
-  it("offers a ref picker when the event declares several", () => {
+  it("offers an editable ref with the declared filters as suggestions", () => {
     harness = mount();
-    harness.sendGraph(payload("fan-out.yml"));
-    // fan-out declares only `branches: [main]`, so there is nothing to choose.
-    expect(harness.document.querySelectorAll("#simulation select")).toHaveLength(0);
-
     harness.sendGraph(payload("dispatch.yml", { event: "push" }));
-    const select = harness.document.querySelector("#simulation select");
-    expect(select).toBeTruthy();
-    expect([...(select?.querySelectorAll("option") ?? [])].map((o) => o.textContent)).toEqual([
-      "main",
-      "dev",
-    ]);
+
+    const input = harness.document.querySelector("#simulation input.ref");
+    expect(input?.value).toBe("refs/heads/main");
+    const options = [...harness.document.querySelectorAll("#ref-choices option")];
+    expect(options.map((option) => option.value)).toEqual(["refs/heads/main", "refs/heads/dev"]);
+  });
+
+  it("reports a typed ref to the host", () => {
+    harness = mount();
+    harness.sendGraph(payload("dispatch.yml", { event: "push" }));
+    const input = harness.document.querySelector("#simulation input.ref");
+    const { window } = harness.dom;
+    if (input) {
+      input.value = "refs/heads/topic";
+      input.dispatchEvent(new window.Event("change", { bubbles: true }));
+    }
+    expect(harness.posted).toContainEqual({ type: "setRef", value: "refs/heads/topic" });
   });
 
   it("renders a control per declared input and reports changes", () => {
@@ -229,9 +237,16 @@ describe("webview header", () => {
     expect(harness.posted).toContainEqual({ type: "setInput", name: "dry-run", input: false });
   });
 
-  it("hides the simulation bar when there is nothing to configure", () => {
+  it("shows only the ref for a workflow with no inputs or unknowns", () => {
     harness = mount();
     harness.sendGraph(payload("simple.yml"));
+    expect(harness.document.querySelectorAll("#simulation .field")).toHaveLength(1);
+    expect(harness.document.querySelector("#simulation input.ref")).toBeTruthy();
+  });
+
+  it("hides the simulation bar when the workflow declares no triggers", () => {
+    harness = mount();
+    harness.sendGraph(payload("no-triggers.yml"));
     expect(harness.document.querySelector("#simulation")?.className).toBe("");
   });
 });
@@ -479,5 +494,24 @@ describe("webview pinning", () => {
     );
     expect(harness.document.querySelectorAll(".row-step.step-skipped")).toHaveLength(1);
     expect(harness.document.querySelectorAll(".row-step.step-run")).toHaveLength(1);
+  });
+});
+
+describe("webview trigger filters", () => {
+  it("warns when the ref would not fire the workflow", () => {
+    harness = mount();
+    harness.sendGraph(payload("filtered.yml", { ref: "refs/heads/topic" }));
+    const banner = harness.document.querySelector("#banner");
+    expect(banner?.className).toBe("visible");
+    expect(banner?.textContent).toContain("would not fire");
+    // Everything is dimmed, since nothing would run.
+    expect(harness.document.querySelectorAll(".row.skipped").length).toBeGreaterThan(0);
+  });
+
+  it("does not warn for a ref the filters accept", () => {
+    harness = mount();
+    harness.sendGraph(payload("filtered.yml"));
+    expect(harness.document.querySelector("#banner")?.className).toBe("");
+    expect(harness.document.querySelectorAll(".row.skipped")).toHaveLength(0);
   });
 });

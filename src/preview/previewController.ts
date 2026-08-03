@@ -131,10 +131,11 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
       simulation = { ...simulation, event: events[0], ref: undefined, inputs: {} };
     }
 
-    const trigger = model.triggers.find((candidate) => candidate.event === simulation.event);
-    const choices = refChoicesFor(trigger);
-    if (simulation.ref == null || !choices.some((choice) => choice.ref === simulation.ref)) {
-      simulation = { ...simulation, ref: choices[0]?.ref };
+    // Only fill in a default; a ref the user typed is kept even when it matches
+    // no filter, because seeing the workflow *not* fire is the point.
+    if (simulation.ref == null) {
+      const trigger = model.triggers.find((candidate) => candidate.event === simulation.event);
+      simulation = { ...simulation, ref: refChoicesFor(trigger)[0]?.ref };
     }
 
     // Drop values for inputs the selected event does not declare.
