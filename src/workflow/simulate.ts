@@ -141,7 +141,7 @@ function resolveEnv(...blocks: (EnvBlock | undefined)[]): Record<string, ExprVal
  * and `strategy`. Modelling that is what stops `env.FOO` in a job `if:` from
  * quietly evaluating against a value the runner would never have supplied.
  */
-export type ConditionScope = "job" | "step";
+type ConditionScope = "job" | "step";
 
 /** Contexts a job-level `if:` may reference, per GitHub's availability table. */
 export const JOB_CONTEXTS = ["github", "needs", "vars", "inputs"] as const;

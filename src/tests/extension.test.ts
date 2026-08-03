@@ -38,9 +38,33 @@ vi.mock("vscode", () => ({
     executeCommand: () => Promise.resolve(),
   },
   workspace: {
+    textDocuments: [],
+    onDidOpenTextDocument: () => ({ dispose: () => {} }),
     onDidChangeTextDocument: () => ({ dispose: () => {} }),
     onDidCloseTextDocument: () => ({ dispose: () => {} }),
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
+  },
+  languages: {
+    createDiagnosticCollection: () => ({
+      set: () => {},
+      delete: () => {},
+      dispose: () => {},
+    }),
+  },
+  DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
+  Diagnostic: class {
+    public source: string | undefined;
+    constructor(
+      public range: unknown,
+      public message: string,
+      public severity: unknown,
+    ) {}
+  },
+  Range: class {
+    constructor(
+      public start: unknown,
+      public end: unknown,
+    ) {}
   },
 }));
 
