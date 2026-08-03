@@ -13,6 +13,7 @@
 import { isMap, isScalar, isSeq, parseDocument, type Node, type YAMLMap } from "yaml";
 import type {
   SourceRange,
+  EnvBlock,
   WorkflowDiagnostic,
   WorkflowInput,
   WorkflowJob,
@@ -173,6 +174,21 @@ function describeTriggerDetails(value: unknown): string[] {
     }
   }
   return details;
+}
+
+/** An `env:` block. Values are kept raw so `${{ }}` can be spotted when evaluating. */
+function parseEnv(value: unknown): EnvBlock | undefined {
+  const plain = toPlain(value);
+  if (plain == null || typeof plain !== "object" || Array.isArray(plain)) {
+    return undefined;
+  }
+  const env: EnvBlock = {};
+  for (const [key, entry] of Object.entries(plain as Record<string, unknown>)) {
+    if (typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean") {
+      env[key] = String(entry);
+    }
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 const INPUT_TYPES = new Set(["string", "boolean", "number", "choice", "environment"]);
@@ -345,6 +361,7 @@ function parseStep(node: unknown, index: number): WorkflowStep {
   const run = asString(map.get("run", true));
   const condition = asString(map.get("if", true));
   const continueOnError = toPlain(map.get("continue-on-error", true)) === true;
+  const env = parseEnv(map.get("env", true));
 
   let name = explicitName;
   name ??= uses;
@@ -356,6 +373,7 @@ function parseStep(node: unknown, index: number): WorkflowStep {
   const step: WorkflowStep = { name, isRun: run != null, continueOnError };
   return {
     ...step,
+    ...(env == null ? {} : { env }),
     ...(uses == null ? {} : { uses }),
     ...(condition == null ? {} : { condition }),
     ...(range == null ? {} : { range }),
@@ -371,7 +389,7 @@ function parseSteps(value: unknown): WorkflowStep[] {
 
 function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
   const range = rangeOf(keyNode);
-  const base: WorkflowJob = { id, name: id, needs: [], steps: [] };
+  const base: WorkflowJob = { id, name: id, needs: [], outputs: [], steps: [] };
   if (!isMap(value)) {
     return range ? { ...base, range } : base;
   }
@@ -385,12 +403,17 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
   const uses = asString(map.get("uses", true));
   const strategy = map.get("strategy", true);
   const matrix = isMap(strategy) ? parseMatrix(strategy.get("matrix", true)) : undefined;
+  const env = parseEnv(map.get("env", true));
+  const outputsNode = map.get("outputs", true);
+  const outputs = isMap(outputsNode) ? mapEntries(outputsNode).map((entry) => entry.key) : [];
 
   return {
     id,
     name: name ?? id,
     needs,
+    outputs,
     steps: parseSteps(map.get("steps", true)),
+    ...(env == null ? {} : { env }),
     ...(condition == null ? {} : { condition }),
     ...(runsOn == null ? {} : { runsOn }),
     ...(environment == null ? {} : { environment }),
@@ -438,6 +461,7 @@ export function parseWorkflow(text: string): WorkflowModel {
 
   const rootMap = root;
   const name = asString(rootMap.get("name", true));
+  const env = parseEnv(rootMap.get("env", true));
   // YAML 1.1 parsers turn `on:` into the boolean `true`; the 1.2 core schema used
   // here keeps it a string, but accept both so hand-written files always work.
   const triggers = parseTriggers(rootMap.get("on", true) ?? rootMap.get(true, true));
@@ -454,5 +478,11 @@ export function parseWorkflow(text: string): WorkflowModel {
     diagnostics.push({ severity: "error", message: "`jobs:` must be a mapping of job ids." });
   }
 
-  return { ...(name == null ? {} : { name }), triggers, jobs, diagnostics };
+  return {
+    ...(name == null ? {} : { name }),
+    ...(env == null ? {} : { env }),
+    triggers,
+    jobs,
+    diagnostics,
+  };
 }

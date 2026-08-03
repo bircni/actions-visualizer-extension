@@ -6,10 +6,11 @@ import {
   inputsFor,
   refChoicesFor,
   simulateJobs,
+  unresolvedPaths,
   withInputDefaults,
   type Simulation,
 } from "../workflow/simulate.js";
-import { evaluate } from "../workflow/expression/evaluate.js";
+import { UNKNOWN, evaluate } from "../workflow/expression/evaluate.js";
 
 const DISPATCH = [
   "on:",
@@ -177,12 +178,36 @@ describe("simulateJobs", () => {
     const source = [
       "on: push",
       "jobs:",
+      "  setup:",
+      "    outputs:",
+      "      ready: ${{ steps.x.outputs.ready }}",
       "  a:",
-      "    if: needs.x.outputs.ready == 'yes'",
+      "    needs: setup",
+      "    if: needs.setup.outputs.ready == 'yes'",
       "  b:",
       "    needs: a",
     ].join("\n");
-    expect(states(source, { event: "push", inputs: {} })).toEqual({ a: "unknown", b: "unknown" });
+    expect(states(source, { event: "push", inputs: {} })).toEqual({
+      setup: "run",
+      a: "unknown",
+      b: "unknown",
+    });
+  });
+
+  it("treats a reference to an output no job declares as absent, not unknown", () => {
+    // `needs.setup.outputs.nope` can never have a value, so the condition is
+    // decidably false rather than undecidable.
+    const source = [
+      "on: push",
+      "jobs:",
+      "  setup:",
+      "    outputs:",
+      "      ready: ${{ steps.x.outputs.ready }}",
+      "  a:",
+      "    needs: setup",
+      "    if: needs.setup.outputs.nope == 'yes'",
+    ].join("\n");
+    expect(states(source, { event: "push", inputs: {} })).toEqual({ setup: "run", a: "skipped" });
   });
 
   it("reports why a job is in its state", () => {
@@ -206,5 +231,160 @@ describe("simulateJobs", () => {
     const result = simulateJobs(model, { event: "push", inputs: {} });
     expect(result.get("a")?.state).toBe("unknown");
     expect(result.get("a")?.reason).toContain("Could not evaluate");
+  });
+});
+
+describe("context availability", () => {
+  const WITH_ENV = [
+    "on: push",
+    "env:",
+    "  GLOBAL: workflow",
+    "  DYNAMIC: ${{ github.sha }}",
+    "jobs:",
+    "  a:",
+    "    env:",
+    "      SCOPED: job",
+    "    steps:",
+    "      - run: echo 1",
+  ].join("\n");
+
+  it("exposes env to a step condition but not to a job condition", () => {
+    const model = parseWorkflow(WITH_ENV);
+    const job = model.jobs[0];
+
+    // GitHub's context availability table: a job-level `if:` cannot see `env`.
+    const jobScope = buildContexts(model, { event: "push", inputs: {} }, { scope: "job" });
+    expect(evaluate("env.GLOBAL", jobScope)).toBe(UNKNOWN);
+
+    const stepScope = buildContexts(
+      model,
+      { event: "push", inputs: {} },
+      { scope: "step", ...(job ? { job } : {}) },
+    );
+    expect(evaluate("env.GLOBAL", stepScope)).toBe("workflow");
+    expect(evaluate("env.SCOPED", stepScope)).toBe("job");
+  });
+
+  it("treats an env value built from an expression as unknown", () => {
+    const model = parseWorkflow(WITH_ENV);
+    const contexts = buildContexts(
+      model,
+      { event: "push", inputs: {} },
+      { scope: "step", ...(model.jobs[0] ? { job: model.jobs[0] } : {}) },
+    );
+    expect(evaluate("env.DYNAMIC", contexts)).toBe(UNKNOWN);
+  });
+
+  it("keeps secrets and vars unknown rather than absent", () => {
+    const contexts = buildContexts(parseWorkflow(DISPATCH), { event: "push", inputs: {} });
+    expect(evaluate("secrets.TOKEN", contexts)).toBe(UNKNOWN);
+    expect(evaluate("vars.REGION", contexts)).toBe(UNKNOWN);
+  });
+});
+
+describe("step conditions", () => {
+  const SOURCE = [
+    "on: [push, pull_request]",
+    "env:",
+    "  STAGE: prod",
+    "jobs:",
+    "  a:",
+    "    steps:",
+    "      - run: always",
+    "      - run: only-push",
+    "        if: github.event_name == 'push'",
+    "      - run: env-gated",
+    "        if: env.STAGE == 'prod'",
+    "      - run: unknowable",
+    "        if: steps.earlier.outputs.ok == 'yes'",
+  ].join("\n");
+
+  it("evaluates each step against the step-scoped contexts", () => {
+    const model = parseWorkflow(SOURCE);
+    const onPush = simulateJobs(model, { event: "push", inputs: {} });
+    expect(onPush.get("a")?.steps).toEqual(["run", "run", "run", "unknown"]);
+
+    const onPr = simulateJobs(model, { event: "pull_request", inputs: {} });
+    expect(onPr.get("a")?.steps).toEqual(["run", "skipped", "run", "unknown"]);
+  });
+
+  it("reports no step states for a job with no steps", () => {
+    const model = parseWorkflow("on: push\njobs:\n  a:\n");
+    expect(simulateJobs(model, { event: "push", inputs: {} }).get("a")?.steps).toEqual([]);
+  });
+});
+
+describe("pinning unknown values", () => {
+  const GATED = [
+    "on: push",
+    "jobs:",
+    "  deploy:",
+    "    if: secrets.DEPLOY_KEY != ''",
+    "    outputs:",
+    "      url: ${{ steps.deploy.outputs.url }}",
+    "  nested:",
+    "    needs: deploy",
+    "    if: needs.deploy.outputs.url != ''",
+  ].join("\n");
+
+  it("lists every context path a workflow's conditions cannot resolve", () => {
+    const model = parseWorkflow(GATED);
+    expect(unresolvedPaths(model, { event: "push", inputs: {} })).toEqual([
+      "needs.deploy.outputs.url",
+      "secrets.DEPLOY_KEY",
+    ]);
+  });
+
+  it("decides a condition once its value is pinned", () => {
+    const model = parseWorkflow(GATED);
+    expect(simulateJobs(model, { event: "push", inputs: {} }).get("deploy")?.state).toBe("unknown");
+
+    const pinned = simulateJobs(model, {
+      event: "push",
+      inputs: {},
+      pinned: { "secrets.DEPLOY_KEY": "abc123" },
+    });
+    expect(pinned.get("deploy")?.state).toBe("run");
+
+    const empty = simulateJobs(model, {
+      event: "push",
+      inputs: {},
+      pinned: { "secrets.DEPLOY_KEY": "" },
+    });
+    expect(empty.get("deploy")?.state).toBe("skipped");
+  });
+
+  it("pins a deeply nested path without losing the rest of the context", () => {
+    const model = parseWorkflow(GATED);
+    const contexts = buildContexts(model, {
+      event: "push",
+      inputs: {},
+      pinned: { "needs.deploy.outputs.url": "https://example.com" },
+    });
+    expect(evaluate("needs.deploy.outputs.url", contexts)).toBe("https://example.com");
+    // Pinning one path must not make its siblings resolvable.
+    expect(evaluate("secrets.OTHER", contexts)).toBe(UNKNOWN);
+    // ...nor clobber contexts the simulation already knew.
+    expect(evaluate("github.event_name", contexts)).toBe("push");
+  });
+
+  it("drops a pin that is not a context path", () => {
+    const contexts = buildContexts(parseWorkflow(GATED), {
+      event: "push",
+      inputs: {},
+      pinned: { secrets: "x", "": "y" },
+    });
+    expect(evaluate("secrets.DEPLOY_KEY", contexts)).toBe(UNKNOWN);
+  });
+
+  it("shrinks the unresolved list as paths get pinned", () => {
+    const model = parseWorkflow(GATED);
+    expect(
+      unresolvedPaths(model, {
+        event: "push",
+        inputs: {},
+        pinned: { "secrets.DEPLOY_KEY": "abc" },
+      }),
+    ).toEqual(["needs.deploy.outputs.url"]);
   });
 });

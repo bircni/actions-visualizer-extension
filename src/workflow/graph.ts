@@ -31,7 +31,13 @@ type CardRow = {
   condition?: string;
   /** Reusable workflow reference, when the job calls one. */
   uses?: string;
-  steps: { name: string; kind: "run" | "uses" | "other"; conditional: boolean }[];
+  steps: {
+    name: string;
+    kind: "run" | "uses" | "other";
+    conditional: boolean;
+    /** Whether this step would run for the simulated event. */
+    state: JobState;
+  }[];
   range?: SourceRange;
 };
 
@@ -135,14 +141,15 @@ function jobMeta(job: WorkflowJob): string | undefined {
   return job.uses == null ? job.runsOn : "reusable workflow";
 }
 
-function jobSteps(job: WorkflowJob, showSteps: boolean): CardRow["steps"] {
+function jobSteps(job: WorkflowJob, showSteps: boolean, states: JobState[]): CardRow["steps"] {
   if (!showSteps) {
     return [];
   }
-  return job.steps.map((step) => ({
+  return job.steps.map((step, index) => ({
     name: step.name,
     kind: step.isRun ? "run" : step.uses == null ? "other" : "uses",
     conditional: step.condition != null,
+    state: states[index] ?? "run",
   }));
 }
 
@@ -236,7 +243,7 @@ export function buildGraph(model: WorkflowModel, options: BuildGraphOptions): Gr
       ...(job.condition == null ? {} : { condition: job.condition }),
       ...(job.uses == null ? {} : { uses: job.uses }),
       ...(meta == null ? {} : { meta }),
-      steps: jobSteps(job, options.showSteps),
+      steps: jobSteps(job, options.showSteps, outcome?.steps ?? []),
       ...(job.range == null ? {} : { range: job.range }),
     };
 
