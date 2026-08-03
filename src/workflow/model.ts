@@ -43,10 +43,21 @@ export type WorkflowTrigger = {
 /** An `env:` block, with values kept raw so `${{ }}` can be detected later. */
 export type EnvBlock = Record<string, string>;
 
+/** A value a job exposes to the jobs that need it. */
+export type WorkflowOutput = {
+  name: string;
+  /** The `${{ ... }}` the output is built from, kept so its inputs can be traced. */
+  expression?: string;
+};
+
 /** A single step inside a job. */
 export type WorkflowStep = {
   /** Display name: explicit `name`, else the action reference, else the first `run` line. */
   name: string;
+  /** `id:`, without which `steps.<id>.*` can never resolve. */
+  id?: string;
+  /** The `run:` script verbatim, used to discover the outputs the step writes. */
+  run?: string;
   /** `uses:` reference when the step calls an action. */
   uses?: string;
   /** True when the step is a `run:` shell step. */
@@ -90,8 +101,8 @@ export type WorkflowJob = {
   matrix?: WorkflowMatrix;
   /** Job-level `env:`, available to the job's steps but not to its own `if:`. */
   env?: EnvBlock;
-  /** Output names the job declares, used to tell an absent output from an unknown one. */
-  outputs: string[];
+  /** Outputs the job declares, used to tell an absent output from an unknown one. */
+  outputs: WorkflowOutput[];
   steps: WorkflowStep[];
   range?: SourceRange;
 };

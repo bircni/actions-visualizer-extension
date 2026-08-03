@@ -19,6 +19,7 @@ import type {
   WorkflowJob,
   WorkflowMatrix,
   WorkflowModel,
+  WorkflowOutput,
   WorkflowStep,
   WorkflowTrigger,
 } from "./model.js";
@@ -357,6 +358,7 @@ function parseStep(node: unknown, index: number): WorkflowStep {
 
   const map = node;
   const explicitName = asString(map.get("name", true));
+  const id = asString(map.get("id", true));
   const uses = asString(map.get("uses", true));
   const run = asString(map.get("run", true));
   const condition = asString(map.get("if", true));
@@ -373,6 +375,8 @@ function parseStep(node: unknown, index: number): WorkflowStep {
   const step: WorkflowStep = { name, isRun: run != null, continueOnError };
   return {
     ...step,
+    ...(id == null ? {} : { id }),
+    ...(run == null ? {} : { run }),
     ...(env == null ? {} : { env }),
     ...(uses == null ? {} : { uses }),
     ...(condition == null ? {} : { condition }),
@@ -405,7 +409,13 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
   const matrix = isMap(strategy) ? parseMatrix(strategy.get("matrix", true)) : undefined;
   const env = parseEnv(map.get("env", true));
   const outputsNode = map.get("outputs", true);
-  const outputs = isMap(outputsNode) ? mapEntries(outputsNode).map((entry) => entry.key) : [];
+  const outputs: WorkflowOutput[] = [];
+  if (isMap(outputsNode)) {
+    for (const entry of mapEntries(outputsNode)) {
+      const expression = asString(entry.value);
+      outputs.push({ name: entry.key, ...(expression == null ? {} : { expression }) });
+    }
+  }
 
   return {
     id,
