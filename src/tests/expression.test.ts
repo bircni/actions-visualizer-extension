@@ -8,6 +8,7 @@ import {
   toBoolean,
   toDisplayString,
   type EvaluationContexts,
+  type EvaluationRuntime,
 } from "../workflow/expression/evaluate.js";
 import { parseExpression, parseTemplate } from "../workflow/expression/parse.js";
 
@@ -169,7 +170,7 @@ describe("built-in functions", () => {
     expect(value("format('{{literal}} {0}', 'x')")).toBe("{literal} x");
   });
 
-  it("assumes a successful run for the status functions", () => {
+  it("assumes a successful run for the status functions by default", () => {
     expect(value("success()")).toBe(true);
     expect(value("always()")).toBe(true);
     expect(value("failure()")).toBe(false);
@@ -242,5 +243,51 @@ describe("evaluateCondition", () => {
     expect(check("inputs.deploy")).toBe("true");
     expect(check("inputs.count > 5")).toBe("false");
     expect(check("contains(github.event.action, 'open')")).toBe("true");
+  });
+});
+
+describe("status functions and the run's status", () => {
+  const check = (condition: string, runtime?: EvaluationRuntime): string =>
+    evaluateCondition(condition, CONTEXTS, runtime).result;
+
+  it("reports success only while the job is succeeding", () => {
+    expect(check("success()", { status: "success" })).toBe("true");
+    expect(check("success()", { status: "failure" })).toBe("false");
+    expect(check("success()", { status: "cancelled" })).toBe("false");
+  });
+
+  it("reports failure only after something has failed", () => {
+    expect(check("failure()", { status: "success" })).toBe("false");
+    expect(check("failure()", { status: "failure" })).toBe("true");
+    expect(check("failure()", { status: "cancelled" })).toBe("false");
+  });
+
+  it("reports cancellation only when cancelled", () => {
+    expect(check("cancelled()", { status: "cancelled" })).toBe("true");
+    expect(check("cancelled()", { status: "failure" })).toBe("false");
+  });
+
+  it("keeps always() true whatever happened", () => {
+    for (const status of ["success", "failure", "cancelled"] as const) {
+      expect(check("always()", { status })).toBe("true");
+    }
+    expect(check("!cancelled()", { status: "failure" })).toBe("true");
+  });
+
+  it("decides a status function even when the expression's other inputs are unknown", () => {
+    // The status is about the run, not the operands, so it still short-circuits.
+    expect(check("failure() && secrets.X", { status: "success" })).toBe("false");
+    expect(check("success() || secrets.X", { status: "success" })).toBe("true");
+  });
+
+  it("defaults to the success path when no runtime is supplied", () => {
+    expect(check("success()")).toBe("true");
+    expect(check("failure()")).toBe("false");
+  });
+
+  it("combines a status function with a context condition", () => {
+    const condition = "failure() && github.event_name == 'push'";
+    expect(check(condition, { status: "failure" })).toBe("true");
+    expect(check(condition, { status: "success" })).toBe("false");
   });
 });

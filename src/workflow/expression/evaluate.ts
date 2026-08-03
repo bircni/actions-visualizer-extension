@@ -39,6 +39,21 @@ export class PartialRecord {
 
 export type EvaluationContexts = Record<string, ExprValue>;
 
+/**
+ * What the enclosing job has done so far, which is what the status functions
+ * report on.
+ *
+ * A static preview has no run to look at, so it assumes the success path — that
+ * is what {@link DEFAULT_RUNTIME} encodes, and it keeps `if: success()` true and
+ * `if: failure()` false exactly as before. A playthrough supplies a real status,
+ * at which point those conditions start meaning something.
+ */
+export type EvaluationRuntime = {
+  status: "success" | "failure" | "cancelled";
+};
+
+export const DEFAULT_RUNTIME: EvaluationRuntime = { status: "success" };
+
 function isUnknown(value: ExprValue): value is Unknown {
   return value === UNKNOWN;
 }
@@ -215,17 +230,18 @@ function applyFilter(target: ExprValue): ExprValue {
   return [];
 }
 
-function callFunction(name: string, args: ExprValue[]): ExprValue {
+function callFunction(name: string, args: ExprValue[], runtime: EvaluationRuntime): ExprValue {
   switch (name) {
-    // In a static preview we show the graph for a successful run.
+    // The status functions read the job's progress, not the expression's inputs,
+    // so they are decided before the UNKNOWN-argument check below.
     case "success":
-      return true;
+      return runtime.status === "success";
+    case "failure":
+      return runtime.status === "failure";
+    case "cancelled":
+      return runtime.status === "cancelled";
     case "always":
       return true;
-    case "failure":
-      return false;
-    case "cancelled":
-      return false;
     // Depends on the working tree, so it can never be known here.
     case "hashfiles":
       return UNKNOWN;
@@ -309,7 +325,11 @@ function callFunction(name: string, args: ExprValue[]): ExprValue {
   }
 }
 
-function evaluateNode(node: ExpressionNode, contexts: EvaluationContexts): ExprValue {
+function evaluateNode(
+  node: ExpressionNode,
+  contexts: EvaluationContexts,
+  runtime: EvaluationRuntime,
+): ExprValue {
   switch (node.kind) {
     case "literal":
       return node.value;
@@ -318,29 +338,33 @@ function evaluateNode(node: ExpressionNode, contexts: EvaluationContexts): ExprV
         ? (contexts[node.name] ?? null)
         : UNKNOWN;
     case "property":
-      return readProperty(evaluateNode(node.target, contexts), node.name);
+      return readProperty(evaluateNode(node.target, contexts, runtime), node.name);
     case "index":
-      return readIndex(evaluateNode(node.target, contexts), evaluateNode(node.index, contexts));
+      return readIndex(
+        evaluateNode(node.target, contexts, runtime),
+        evaluateNode(node.index, contexts, runtime),
+      );
     case "filter":
-      return applyFilter(evaluateNode(node.target, contexts));
+      return applyFilter(evaluateNode(node.target, contexts, runtime));
     case "call":
       return callFunction(
         node.name,
-        node.args.map((argument) => evaluateNode(argument, contexts)),
+        node.args.map((argument) => evaluateNode(argument, contexts, runtime)),
+        runtime,
       );
     case "unary": {
-      const operand = toBoolean(evaluateNode(node.operand, contexts));
+      const operand = toBoolean(evaluateNode(node.operand, contexts, runtime));
       return isUnknown(operand) ? UNKNOWN : !operand;
     }
     case "binary": {
-      const left = evaluateNode(node.left, contexts);
+      const left = evaluateNode(node.left, contexts, runtime);
       if (node.operator === "&&") {
         const truth = toBoolean(left);
         // A known-false left side decides the result even if the right is unknown.
         if (truth === false) {
           return left;
         }
-        const right = evaluateNode(node.right, contexts);
+        const right = evaluateNode(node.right, contexts, runtime);
         return isUnknown(truth) ? UNKNOWN : right;
       }
       if (node.operator === "||") {
@@ -348,11 +372,11 @@ function evaluateNode(node: ExpressionNode, contexts: EvaluationContexts): ExprV
         if (truth === true) {
           return left;
         }
-        const right = evaluateNode(node.right, contexts);
+        const right = evaluateNode(node.right, contexts, runtime);
         return isUnknown(truth) ? UNKNOWN : right;
       }
 
-      const right = evaluateNode(node.right, contexts);
+      const right = evaluateNode(node.right, contexts, runtime);
       if (isUnknown(left) || isUnknown(right)) {
         return UNKNOWN;
       }
@@ -387,6 +411,7 @@ export type ConditionEvaluation = {
 export function evaluateCondition(
   condition: string,
   contexts: EvaluationContexts,
+  runtime: EvaluationRuntime = DEFAULT_RUNTIME,
 ): ConditionEvaluation {
   const trimmed = condition.trim();
   if (trimmed === "") {
@@ -398,9 +423,9 @@ export function evaluateCondition(
     const template = parseTemplate(trimmed);
     if (template == null) {
       // No `${{ }}` at all: the whole value is the expression.
-      value = evaluateNode(parseExpression(trimmed), contexts);
+      value = evaluateNode(parseExpression(trimmed), contexts, runtime);
     } else if (template.length === 1 && template[0]?.kind === "expression") {
-      value = evaluateNode(template[0].node, contexts);
+      value = evaluateNode(template[0].node, contexts, runtime);
     } else {
       // Mixed text and expressions produce a string, which is then tested for truth.
       let text = "";
@@ -409,7 +434,7 @@ export function evaluateCondition(
           text += part.text;
           continue;
         }
-        const partValue = evaluateNode(part.node, contexts);
+        const partValue = evaluateNode(part.node, contexts, runtime);
         if (isUnknown(partValue)) {
           return { result: "unknown" };
         }
@@ -467,7 +492,7 @@ export function unresolvedReferences(condition: string, contexts: EvaluationCont
   const walk = (node: ExpressionNode): void => {
     const path = pathOf(node);
     if (path != null) {
-      if (isUnknown(evaluateNode(node, contexts))) {
+      if (isUnknown(evaluateNode(node, contexts, DEFAULT_RUNTIME))) {
         // Only record the full path; the parent that also reads unknown is noise.
         found.add(path);
       }
@@ -523,5 +548,5 @@ export function unresolvedReferences(condition: string, contexts: EvaluationCont
 
 /** Evaluates a bare expression, for tests and for interpolating display strings. */
 export function evaluate(source: string, contexts: EvaluationContexts): ExprValue {
-  return evaluateNode(parseExpression(source), contexts);
+  return evaluateNode(parseExpression(source), contexts, DEFAULT_RUNTIME);
 }
