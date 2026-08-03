@@ -17,6 +17,9 @@ dist/**/*.map
 *.tsbuildinfo
 
 # Documentation (not needed in extension)
+# The README itself ships as the marketplace page, but vsce rewrites its relative
+# image links to absolute raw URLs, so the images themselves need not be bundled.
+assets/example/**
 README.md
 # LICENSE
 AGENTS.md
