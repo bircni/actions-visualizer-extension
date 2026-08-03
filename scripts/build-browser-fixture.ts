@@ -10,6 +10,7 @@ import * as path from "node:path";
 import { buildGraphMessage } from "../src/preview/graphMessage.js";
 import { parseWorkflow } from "../src/workflow/parse.js";
 import { refChoicesFor, type Simulation } from "../src/workflow/simulate.js";
+import { newPlaythrough, type StepDecision } from "../src/workflow/playthrough.js";
 
 const scriptDir = path.dirname(path.resolve(process.argv[1] ?? ""));
 const rootDir = path.resolve(scriptDir, "..");
@@ -23,6 +24,8 @@ type Case = {
   expanded?: string[];
   pinned?: Record<string, string>;
   ref?: string;
+  /** Decisions to replay, which also switches the case into playthrough mode. */
+  decisions?: StepDecision[];
 };
 
 const CASES: Record<string, Case> = {
@@ -40,6 +43,22 @@ const CASES: Record<string, Case> = {
   stepConditions: { file: "step-conditions.yml", event: "pull_request", expanded: ["row:a"] },
   filtered: { file: "filtered.yml" },
   filteredMiss: { file: "filtered.yml", ref: "refs/heads/topic" },
+  playStart: { file: "playthrough.yml", decisions: [] },
+  playOutputs: {
+    file: "playthrough.yml",
+    decisions: [{ jobId: "build", stepIndex: 0, outcome: "success", outputs: {} }],
+  },
+  playFailed: {
+    file: "playthrough.yml",
+    expanded: ["row:build"],
+    decisions: [
+      { jobId: "build", stepIndex: 0, outcome: "success", outputs: {} },
+      { jobId: "build", stepIndex: 1, outcome: "success", outputs: { version: "1.4.2" } },
+      { jobId: "build", stepIndex: 2, outcome: "failure", outputs: {} },
+      { jobId: "build", stepIndex: 3, outcome: "success", outputs: {} },
+      { jobId: "build", stepIndex: 4, outcome: "success", outputs: {} },
+    ],
+  },
 };
 
 function build(testCase: Case): unknown {
@@ -63,6 +82,9 @@ function build(testCase: Case): unknown {
     direction: "LR",
     simulation,
     expanded: testCase.expanded ?? [],
+    ...(testCase.decisions == null
+      ? {}
+      : { playthrough: { ...newPlaythrough(), decisions: testCase.decisions } }),
   }).body;
 }
 

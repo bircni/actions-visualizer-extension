@@ -11,6 +11,7 @@ import { buildGraphMessage, type GraphMessageBody } from "../preview/graphMessag
 import { getInitialHtml } from "../webview/content.js";
 import { parseWorkflow } from "../workflow/parse.js";
 import { refChoicesFor, type Simulation } from "../workflow/simulate.js";
+import { newPlaythrough, type Playthrough, type StepDecision } from "../workflow/playthrough.js";
 
 const FIXTURE_DIR = path.join(process.cwd(), ".fixtures", "workflows");
 
@@ -28,6 +29,7 @@ function payload(
     inputs?: Simulation["inputs"];
     pinned?: Record<string, string>;
     ref?: string;
+    playthrough?: Playthrough;
   } = {},
 ): Payload {
   const text = fs.readFileSync(path.join(FIXTURE_DIR, name), "utf8");
@@ -47,6 +49,7 @@ function payload(
     direction: "LR",
     simulation,
     expanded: options.expanded ?? [],
+    playthrough: options.playthrough,
   }).body;
 }
 
@@ -114,7 +117,7 @@ function mount(): Harness {
     posted,
     send,
     sendGraph: (data) => {
-      send({ type: "graph", graph: data.graph, expanded: [], simulation: data.simulation });
+      send({ type: "graph", ...data });
     },
     click,
   };
@@ -564,5 +567,188 @@ describe("webview accessibility", () => {
     const before = harness.document.querySelector("#scene")?.getAttribute("transform");
     window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "+" }));
     expect(harness.document.querySelector("#scene")?.getAttribute("transform")).not.toBe(before);
+  });
+});
+
+const WALK = "playthrough.yml";
+
+function walking(decisions: StepDecision[] = []): Playthrough {
+  return { ...newPlaythrough(), decisions };
+}
+
+function decide(jobId: string, stepIndex: number, outcome: StepDecision["outcome"]): StepDecision {
+  return { jobId, stepIndex, outcome, outputs: {} };
+}
+
+describe("webview playthrough", () => {
+  it("keeps the bar hidden until a walk is running", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK));
+    expect(harness.document.querySelector("#playthrough")?.className).toBe("");
+  });
+
+  it("replaces the simulation controls with the playthrough bar", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    // Changing the event mid-walk would invalidate it, so those controls go away.
+    expect(harness.document.querySelector("#simulation")?.className).toBe("");
+    expect(harness.document.querySelector("#playthrough")?.className).toBe("visible");
+  });
+
+  it("says where the walk is and how far along", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    expect(harness.document.querySelector("#playthrough .position")?.textContent).toContain(
+      "build",
+    );
+    expect(harness.document.querySelector("#playthrough .progress")?.textContent).toBe(
+      "0 of 7 steps",
+    );
+  });
+
+  it("offers both outcomes and reports the one chosen", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    const { window } = harness.dom;
+
+    harness.document
+      .querySelector("#outcome-success")
+      ?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({
+      type: "decideStep",
+      outcome: "success",
+      outputs: {},
+    });
+
+    harness.document
+      .querySelector("#outcome-failure")
+      ?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({
+      type: "decideStep",
+      outcome: "failure",
+      outputs: {},
+    });
+  });
+
+  it("offers a field per discovered output and sends what was typed", () => {
+    harness = mount();
+    // Step 1 is `Read version`, whose script writes `version`.
+    harness.sendGraph(payload(WALK, { playthrough: walking([decide("build", 0, "success")]) }));
+    const field = harness.document.querySelector("#playthrough input[data-output]");
+    expect(field?.dataset.output).toBe("version");
+
+    const { window } = harness.dom;
+    if (field) {
+      field.value = "1.4.2";
+    }
+    harness.document
+      .querySelector("#outcome-success")
+      ?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({
+      type: "decideStep",
+      outcome: "success",
+      outputs: { version: "1.4.2" },
+    });
+  });
+
+  it("wires the walk controls", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking([decide("build", 0, "success")]) }));
+    const { window } = harness.dom;
+    const press = (id: string): void => {
+      harness?.document
+        .querySelector(`#${id}`)
+        ?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    };
+    press("skip-job");
+    press("undo-step");
+    press("restart-playthrough");
+    press("stop-playthrough");
+    expect(harness.posted).toContainEqual({ type: "skipJobRest" });
+    expect(harness.posted).toContainEqual({ type: "undoStep" });
+    expect(harness.posted).toContainEqual({ type: "restartPlaythrough" });
+    expect(harness.posted).toContainEqual({ type: "stopPlaythrough" });
+  });
+
+  it("hides undo until there is something to undo", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    expect(harness.document.querySelector("#undo-step")).toBeNull();
+  });
+
+  it("starts a walk from the toolbar", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK));
+    harness.document
+      .querySelector("#btn-play")
+      ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({ type: "startPlaythrough" });
+  });
+
+  it("stops from the same button once a walk is running", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    harness.document
+      .querySelector("#btn-play")
+      ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({ type: "stopPlaythrough" });
+  });
+
+  it("marks the current, decided and unreached rows differently", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking([decide("build", 0, "success")]) }));
+    expect(harness.document.querySelectorAll(".row.current")).toHaveLength(1);
+    expect(harness.document.querySelectorAll(".row.pending").length).toBeGreaterThan(0);
+  });
+
+  it("marks the failed step and moves on to the one the failure lets through", () => {
+    harness = mount();
+    harness.sendGraph(
+      payload(WALK, {
+        expanded: ["row:build"],
+        playthrough: walking([
+          decide("build", 0, "success"),
+          decide("build", 1, "success"),
+          decide("build", 2, "failure"),
+        ]),
+      }),
+    );
+    expect(harness.document.querySelectorAll(".row-step.step-failure")).toHaveLength(1);
+    // `Upload logs` is `if: failure()`, so the failure is exactly what lets it run.
+    expect(harness.document.querySelectorAll(".row-step.step-current")).toHaveLength(1);
+    // The job is not failed yet — it is still being walked.
+    expect(harness.document.querySelectorAll(".row.current")).toHaveLength(1);
+    expect(harness.document.querySelectorAll(".row.failure")).toHaveLength(0);
+  });
+
+  it("shows the job failed once its steps are done, and skips what depended on it", () => {
+    harness = mount();
+    harness.sendGraph(
+      payload(WALK, {
+        playthrough: walking([
+          decide("build", 0, "success"),
+          decide("build", 1, "success"),
+          decide("build", 2, "failure"),
+          decide("build", 3, "success"),
+          decide("build", 4, "success"),
+        ]),
+      }),
+    );
+    const rowState = (jobId: string): string | undefined =>
+      harness?.document.querySelector(`[data-row-id="row:${jobId}"]`)?.getAttribute("class");
+
+    expect(rowState("build")).toContain("failure");
+    // `publish` needs build, so it never starts; `notify` is `if: always()`.
+    expect(rowState("publish")).toContain("skipped");
+    expect(rowState("notify")).toContain("current");
+  });
+
+  it("describes the playthrough state to a screen reader", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    const label = harness.document
+      .querySelector('[data-row-id="row:build"]')
+      ?.getAttribute("aria-label");
+    expect(label).toContain("waiting for you to say what happened");
   });
 });
