@@ -233,48 +233,62 @@ export function triggerFires(model: WorkflowModel, simulation: Simulation): RefF
   return refMatchesFilters(simulation.ref, { branches: trigger.branches, tags: trigger.tags });
 }
 
+/** True for a fully-known record, where a key it lacks means genuinely absent. */
+function isPlainRecord(value: ExprValue | undefined): value is { [key: string]: ExprValue } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !(value instanceof PartialRecord)
+  );
+}
+
+/**
+ * Writes `value` at `segments` inside `container`, preserving what it already
+ * holds and — crucially — what kind of container it is.
+ *
+ * The distinction carries meaning: a plain record is fully known, so a key it
+ * lacks is *absent*, while a {@link PartialRecord} is only partly modelled, so a
+ * key it lacks is *unknown*. Swapping one for the other silently flips every
+ * sibling of the pinned path from absent to unknown.
+ */
+function setPath(container: ExprValue | undefined, segments: string[], value: string): ExprValue {
+  const head = segments[0];
+  if (head == null) {
+    return value;
+  }
+  const rest = segments.slice(1);
+
+  if (container instanceof PartialRecord) {
+    container.properties[head] = setPath(container.properties[head], rest, value);
+    return container;
+  }
+  if (isPlainRecord(container)) {
+    container[head] = setPath(container[head], rest, value);
+    return container;
+  }
+  // Nothing is modelled here, so a partial record is the honest choice: the
+  // siblings of whatever we pin stay unknown rather than becoming absent.
+  const created = new PartialRecord({});
+  created.properties[head] = setPath(undefined, rest, value);
+  return created;
+}
+
 /**
  * Applies the values the user pinned for things the simulation cannot know.
  *
  * A pin is a full context path such as `secrets.TOKEN` or
- * `steps.build.outputs.sha`, so it has to be woven into the nested
- * {@link PartialRecord} tree rather than set as one flat key. Merging in place
- * keeps everything else about the context unknown.
+ * `steps.build.outputs.sha`, so it is woven into the nested context tree. A path
+ * naming only a root (`secrets` on its own) pins nothing and is ignored.
  */
 function applyPinned(contexts: EvaluationContexts, pinned: Record<string, string>): void {
   for (const [path, value] of Object.entries(pinned)) {
     const segments = path.split(".").filter((segment) => segment.length > 0);
-    const root = segments.shift();
-    if (root == null || segments.length === 0) {
+    const root = segments[0];
+    if (root == null || segments.length < 2) {
       continue;
     }
-
-    let record = contexts[root];
-    if (!(record instanceof PartialRecord)) {
-      record = new PartialRecord({});
-      contexts[root] = record;
-    }
-
-    let current: PartialRecord = record;
-    while (segments.length > 1) {
-      const segment = segments.shift();
-      if (segment == null) {
-        break;
-      }
-      const existing = current.properties[segment];
-      if (existing instanceof PartialRecord) {
-        current = existing;
-      } else {
-        const next = new PartialRecord({});
-        current.properties[segment] = next;
-        current = next;
-      }
-    }
-
-    const leaf = segments[0];
-    if (leaf != null) {
-      current.properties[leaf] = value;
-    }
+    contexts[root] = setPath(contexts[root], segments.slice(1), value);
   }
 }
 

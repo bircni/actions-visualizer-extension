@@ -369,6 +369,34 @@ describe("pinning unknown values", () => {
     expect(evaluate("github.event_name", contexts)).toBe("push");
   });
 
+  it("does not disturb other jobs when one job's output is pinned", () => {
+    const model = parseWorkflow(
+      [
+        "on: push",
+        "jobs:",
+        "  alpha:",
+        "    outputs:",
+        "      one: ${{ steps.a.outputs.one }}",
+        "  beta:",
+        "    outputs:",
+        "      two: ${{ steps.b.outputs.two }}",
+      ].join("\n"),
+    );
+    const contexts = buildContexts(model, {
+      event: "push",
+      inputs: {},
+      pinned: { "needs.alpha.outputs.one": "v1" },
+    });
+
+    expect(evaluate("needs.alpha.outputs.one", contexts)).toBe("v1");
+    // `needs` is fully known, so pinning into it must not turn its siblings
+    // partial: a declared-but-unrun output stays unknown...
+    expect(evaluate("needs.beta.outputs.two", contexts)).toBe(UNKNOWN);
+    // ...while an output no job declares stays genuinely absent.
+    expect(evaluate("needs.beta.outputs.nope", contexts)).toBeNull();
+    expect(evaluate("needs.alpha.outputs.nope", contexts)).toBeNull();
+  });
+
   it("drops a pin that is not a context path", () => {
     const contexts = buildContexts(parseWorkflow(GATED), {
       event: "push",
