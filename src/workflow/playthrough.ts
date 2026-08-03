@@ -20,7 +20,7 @@ import type { WorkflowJob, WorkflowModel, WorkflowStep } from "./model.js";
 export type StepOutcome = "success" | "failure" | "skipped";
 
 /** How a step or job stands in the walk so far. */
-type RunState = "pending" | "current" | "success" | "failure" | "skipped";
+export type RunState = "pending" | "current" | "success" | "failure" | "skipped";
 
 export type StepDecision = {
   jobId: string;
@@ -40,14 +40,14 @@ export type Playthrough = {
 
 type StepRun = { state: RunState; reason?: string };
 
-type JobRun = {
+export type JobRun = {
   state: RunState;
   steps: StepRun[];
   reason?: string;
 };
 
 /** Where the user is, and what the panel should ask them for. */
-type PlaythroughCursor = {
+export type PlaythroughCursor = {
   jobId: string;
   jobName: string;
   stepIndex: number;
