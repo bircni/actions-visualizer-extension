@@ -206,6 +206,67 @@ describe("parseWorkflow steps", () => {
   });
 });
 
+describe("parseWorkflow step identity and scripts", () => {
+  const SOURCE = [
+    "on: push",
+    "jobs:",
+    "  a:",
+    "    steps:",
+    "      - id: version",
+    "        name: Get version",
+    "        run: |",
+    '          echo "value=1.2.3" >> $GITHUB_OUTPUT',
+    "      - uses: actions/checkout@v5",
+  ].join("\n");
+
+  it("keeps a step's `id:`, without which `steps.<id>.*` can never resolve", () => {
+    const steps = parseWorkflow(SOURCE).jobs[0]?.steps ?? [];
+    expect(steps[0]?.id).toBe("version");
+    expect(steps[1]?.id).toBeUndefined();
+  });
+
+  it("keeps the `run:` script verbatim, not just the derived name", () => {
+    const step = parseWorkflow(SOURCE).jobs[0]?.steps[0];
+    expect(step?.run).toBe('echo "value=1.2.3" >> $GITHUB_OUTPUT\n');
+    // The display name is still derived from it.
+    expect(step?.name).toBe("Get version");
+  });
+
+  it("leaves `run` undefined for an action step", () => {
+    expect(parseWorkflow(SOURCE).jobs[0]?.steps[1]?.run).toBeUndefined();
+    expect(parseWorkflow(SOURCE).jobs[0]?.steps[1]?.isRun).toBe(false);
+  });
+});
+
+describe("parseWorkflow job outputs", () => {
+  it("keeps each output's expression alongside its name", () => {
+    const model = parseWorkflow(
+      [
+        "on: push",
+        "jobs:",
+        "  build:",
+        "    outputs:",
+        "      sha: ${{ steps.meta.outputs.sha }}",
+        "      fixed: literal",
+      ].join("\n"),
+    );
+    expect(model.jobs[0]?.outputs).toEqual([
+      { name: "sha", expression: "${{ steps.meta.outputs.sha }}" },
+      { name: "fixed", expression: "literal" },
+    ]);
+  });
+
+  it("returns no outputs when the job declares none", () => {
+    expect(parseWorkflow("on: push\njobs:\n  a:\n").jobs[0]?.outputs).toEqual([]);
+  });
+
+  it("ignores an `outputs:` that is not a mapping", () => {
+    expect(
+      parseWorkflow("on: push\njobs:\n  a:\n    outputs: nonsense\n").jobs[0]?.outputs,
+    ).toEqual([]);
+  });
+});
+
 describe("parseWorkflow matrix", () => {
   it("counts static combinations", () => {
     const model = parseWorkflow(fixture("matrix.yml"));

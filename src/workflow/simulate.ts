@@ -186,7 +186,7 @@ export function buildContexts(
   for (const job of model.jobs) {
     const outputs: Record<string, ExprValue> = {};
     for (const output of job.outputs) {
-      outputs[output] = UNKNOWN;
+      outputs[output.name] = UNKNOWN;
     }
     needs[job.id] = { outputs, result: UNKNOWN };
   }
