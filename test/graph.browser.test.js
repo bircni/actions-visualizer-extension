@@ -475,4 +475,78 @@ test.describe("workflow graph webview", () => {
     // Nothing runs, so every row is dimmed.
     await expect(page.locator(".row.skipped")).toHaveCount(2);
   });
+
+  test("walks the rows with the arrow keys", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "fanOut");
+
+    await page.locator(".row").first().focus();
+    const focusedRow = async () =>
+      page.evaluate(() => document.activeElement?.getAttribute("data-row-id"));
+    expect(await focusedRow()).toBe("row:build");
+
+    await page.keyboard.press("ArrowDown");
+    expect(await focusedRow()).toBe("row:lint");
+    await page.keyboard.press("ArrowDown");
+    expect(await focusedRow()).toBe("row:test");
+    await page.keyboard.press("ArrowUp");
+    expect(await focusedRow()).toBe("row:lint");
+
+    await page.keyboard.press("End");
+    expect(await focusedRow()).toBe("row:publish");
+    await page.keyboard.press("Home");
+    expect(await focusedRow()).toBe("row:build");
+  });
+
+  test("reveals and expands the focused row from the keyboard", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "fanOut");
+    await page.locator('[data-row-id="row:build"]').focus();
+    await resetPosted(page);
+
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Space");
+    const posted = await page.evaluate(() => window.__posted);
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: "revealSource", nodeId: "row:build" }),
+    );
+    expect(posted).toContainEqual({ type: "toggleExpand", nodeId: "row:build" });
+  });
+
+  test("shows a visible focus ring on the focused row", async ({ page }) => {
+    await mount(page, "light");
+    await sendGraph(page, "fanOut");
+    await page.locator('[data-row-id="row:build"]').focus();
+
+    const stroke = await page.evaluate(() => {
+      const hit = document.querySelector('[data-row-id="row:build"] .row-hit');
+      return hit ? getComputedStyle(hit).strokeWidth : null;
+    });
+    // The ring is drawn on the row's hit area, so focus is visible without a mouse.
+    expect(Number(stroke?.replace("px", ""))).toBeGreaterThan(0);
+  });
+
+  test("keeps the focused row on screen", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "showcase");
+
+    // Zoom in far enough that the far side of the graph is off screen.
+    await page.locator("#viewport").hover();
+    await page.mouse.wheel(0, -600);
+
+    await page.locator(".row").first().focus();
+    await page.keyboard.press("End");
+
+    const visible = await page.evaluate(() => {
+      const row = document.activeElement;
+      const viewport = document.querySelector("#viewport");
+      if (!row || !viewport) {
+        return false;
+      }
+      const a = row.getBoundingClientRect();
+      const b = viewport.getBoundingClientRect();
+      return a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom;
+    });
+    expect(visible).toBe(true);
+  });
 });
