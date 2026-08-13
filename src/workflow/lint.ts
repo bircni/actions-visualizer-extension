@@ -191,7 +191,12 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
 
     // An output declared but never read by a dependent job is usually a leftover.
     const readers = neededBy.get(job.id) ?? [];
-    if (job.outputs.length > 0 && readers.length === 0 && !exportedOutputJobs.has(job.id)) {
+    if (
+      job.outputs.length > 0 &&
+      readers.length === 0 &&
+      exportedOutputJobs != null &&
+      !exportedOutputJobs.has(job.id)
+    ) {
       findings.push({
         code: "unconsumed-outputs",
         severity: "information",

@@ -111,6 +111,44 @@ describe("workflow quick fixes", () => {
     );
   });
 
+  it("removes properties from flow-style job maps without deleting the job", () => {
+    const cases = [
+      {
+        source: "on: push\njobs:\n  a: { needs: a, runs-on: linux }\n",
+        code: "self-needs" as const,
+      },
+      {
+        source: "on: push\njobs:\n  a: { if: false, runs-on: linux }\n",
+        code: "always-false-condition" as const,
+      },
+      {
+        source: "on: push\njobs:\n  a: { outputs: { x: y }, runs-on: linux }\n",
+        code: "unconsumed-outputs" as const,
+      },
+    ];
+
+    for (const item of cases) {
+      const state = finding(item.source, item.code);
+      const fix = fixesForFinding(item.source, state.model, state.finding)[0];
+      const result = apply(item.source, fix?.edits ?? []);
+      expect(result).toBe("on: push\njobs:\n  a: { runs-on: linux }\n");
+      expect(parseWorkflow(result).jobs).toMatchObject([{ id: "a", runsOn: "linux" }]);
+    }
+  });
+
+  it("leaves an empty flow map when removing its only property", () => {
+    for (const source of [
+      "on: push\njobs:\n  a: { needs: a }\n",
+      "on: push\njobs:\n  a: { needs: a, }\n",
+    ]) {
+      const state = finding(source, "self-needs");
+      const fix = fixesForFinding(source, state.model, state.finding)[0];
+      const result = apply(source, fix?.edits ?? []);
+      expect(result).toBe("on: push\njobs:\n  a: {  }\n");
+      expect(parseWorkflow(result).jobs).toMatchObject([{ id: "a", needs: [] }]);
+    }
+  });
+
   it("does not invent a rewrite for an invalid job context", () => {
     const source = "on: push\njobs:\n  a:\n    if: env.STAGE == 'prod'\n";
     const state = finding(source, "invalid-job-context");

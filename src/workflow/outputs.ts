@@ -196,35 +196,42 @@ function staticPath(node: ExpressionNode): string[] | undefined {
   return undefined;
 }
 
-function readJobOutputExpression(source: string | undefined, into: Set<string>): void {
+function readJobOutputExpression(source: string | undefined, into: Set<string>): boolean {
   if (source == null || source.trim().length === 0) {
-    return;
+    return false;
   }
   try {
     const template = parseTemplate(source);
     if (template == null) {
       collectJobOutputReads(parseExpression(source), into);
-      return;
+      return true;
     }
     for (const part of template) {
       if (part.kind === "expression") {
         collectJobOutputReads(part.node, into);
       }
     }
+    return true;
   } catch {
     // A malformed expression is diagnosed elsewhere and cannot prove a consumer.
+    return false;
   }
 }
 
-/** Job ids whose outputs form part of the reusable workflow's public contract. */
-export function workflowOutputJobs(model: WorkflowModel): Set<string> {
+/**
+ * Job ids whose outputs form part of the reusable workflow's public contract.
+ * Undefined means that contract is present but not fully parseable, so callers
+ * must not claim an output is unused while the user is still editing it.
+ */
+export function workflowOutputJobs(model: WorkflowModel): Set<string> | undefined {
   const jobs = new Set<string>();
+  let complete = true;
   for (const trigger of model.triggers) {
     for (const output of trigger.outputs ?? []) {
-      readJobOutputExpression(output.expression, jobs);
+      complete = readJobOutputExpression(output.expression, jobs) && complete;
     }
   }
-  return jobs;
+  return complete ? jobs : undefined;
 }
 
 /**

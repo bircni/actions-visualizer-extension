@@ -39,6 +39,44 @@ function separatorRange(text: string, start: number, end: number): SourceRange |
   return { start: offset, end: /^\s*$/.test(afterComma) ? end : offset + 1 };
 }
 
+/** Removes one job property, respecting block and `{ ... }` map styles. */
+function removeProperty(text: string, job: WorkflowJob, range: SourceRange): WorkflowTextEdit[] {
+  const flow = job.source?.flow;
+  if (flow == null) {
+    return [{ range: lineRange(text, range), replacement: "" }];
+  }
+  const properties = flow.properties;
+  const index = properties.findIndex(
+    (property) => property.start === range.start && property.end === range.end,
+  );
+  if (index === -1) {
+    return [];
+  }
+  if (properties.length === 1) {
+    const trailingSeparator = separatorRange(text, range.end, flow.range.end);
+    return [
+      { range, replacement: "" },
+      ...(trailingSeparator == null ? [] : [{ range: trailingSeparator, replacement: "" }]),
+    ];
+  }
+
+  if (index < properties.length - 1) {
+    const next = properties[index + 1];
+    const separator = next == null ? undefined : separatorRange(text, range.end, next.start);
+    return [
+      { range, replacement: "" },
+      ...(separator == null ? [] : [{ range: separator, replacement: "" }]),
+    ];
+  }
+
+  const previous = properties[index - 1];
+  const separator = previous == null ? undefined : separatorRange(text, previous.end, range.start);
+  return [
+    ...(separator == null ? [] : [{ range: separator, replacement: "" }]),
+    { range, replacement: "" },
+  ];
+}
+
 /** Removes flow-sequence scalars and only the commas made redundant by them. */
 function removeFlowItems(
   text: string,
@@ -119,7 +157,7 @@ function removeNeedsItems(
     .map((_, index) => index)
     .filter((index) => !removedIndexes.has(index));
   if (retainedIndexes.length === 0) {
-    return [{ range: lineRange(text, source.range), replacement: "" }];
+    return removeProperty(text, job, source.range);
   }
 
   const valueText = text.slice(source.valueRange.start, source.valueRange.end);
@@ -176,7 +214,7 @@ export function fixesForFinding(
   } else {
     const range = fix.kind === "remove-condition" ? job.source?.condition : job.source?.outputs;
     if (range != null) {
-      edits = [{ range: lineRange(text, range), replacement: "" }];
+      edits = removeProperty(text, job, range);
     }
   }
   return edits.length === 0

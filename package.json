@@ -101,7 +101,8 @@
     "vitest": "^4.1.10"
   },
   "activationEvents": [
-    "onLanguage:yaml"
+    "onLanguage:yaml",
+    "onLanguage:github-actions-workflow"
   ],
   "contributes": {
     "commands": [

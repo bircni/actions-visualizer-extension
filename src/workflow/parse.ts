@@ -488,6 +488,17 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
   const conditionRange = propertyRange(map, "if");
   const outputsRange = propertyRange(map, "outputs");
   const source: WorkflowJobSource = {
+    ...(map.flow === true && rangeOf(map) != null
+      ? {
+          flow: {
+            range: rangeOf(map)!,
+            properties: mapEntries(map).flatMap((entry) => {
+              const entryRange = propertyRange(map, entry.key);
+              return entryRange == null ? [] : [entryRange];
+            }),
+          },
+        }
+      : {}),
     ...(needsPropertyRange == null || parsedNeeds.valueRange == null
       ? {}
       : {

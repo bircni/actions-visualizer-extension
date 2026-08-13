@@ -152,6 +152,24 @@ describe("lintWorkflow output checks", () => {
       ),
     ).toEqual([]);
   });
+
+  it("does not offer output removal while a reusable-workflow output is incomplete", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      artifact:",
+          "        value: '${{ jobs.build.outputs.artifact }'",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("lintWorkflow resilience", () => {
