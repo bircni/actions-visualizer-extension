@@ -86,7 +86,7 @@ export type WorkflowMatrix = {
 /** Source locations needed for precise diagnostics and targeted YAML edits. */
 export type WorkflowJobSource = {
   /** A `{ key: value }` job map and its properties, used for comma-aware removals. */
-  flow?: { range: SourceRange; properties: SourceRange[] };
+  flow?: { range: SourceRange; properties: SourceRange[]; complete: boolean };
   needs?: {
     /** The complete `needs:` property, from its key through its value. */
     range: SourceRange;
@@ -94,6 +94,8 @@ export type WorkflowJobSource = {
     valueRange: SourceRange;
     /** One range per normalised dependency, in the same order as `needs`. */
     items: { id: string; range: SourceRange }[];
+    /** False when an unsupported sequence item prevents exact edit mapping. */
+    complete: boolean;
   };
   /** The complete job-level `if:` property. */
   condition?: SourceRange;

@@ -110,6 +110,7 @@ function asStringArray(value: unknown): string[] {
 function parseNeeds(value: unknown): {
   needs: string[];
   items: { id: string; range: SourceRange }[];
+  complete: boolean;
   valueRange?: SourceRange;
 } {
   const valueRange = rangeOf(value);
@@ -118,6 +119,7 @@ function parseNeeds(value: unknown): {
     return {
       needs: [value.value],
       items: itemRange == null ? [] : [{ id: value.value, range: itemRange }],
+      complete: itemRange != null,
       ...(valueRange == null ? {} : { valueRange }),
     };
   }
@@ -132,10 +134,16 @@ function parseNeeds(value: unknown): {
     return {
       needs: items.map((item) => item.id),
       items,
+      complete: items.length === value.items.length,
       ...(valueRange == null ? {} : { valueRange }),
     };
   }
-  return { needs: asStringArray(value), items: [], ...(valueRange == null ? {} : { valueRange }) };
+  return {
+    needs: asStringArray(value),
+    items: [],
+    complete: false,
+    ...(valueRange == null ? {} : { valueRange }),
+  };
 }
 
 /** `runs-on` accepts a string, an array of labels, or a `{ group, labels }` map. */
@@ -487,18 +495,24 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
   const needsPropertyRange = propertyRange(map, "needs");
   const conditionRange = propertyRange(map, "if");
   const outputsRange = propertyRange(map, "outputs");
+  const flowRange = map.flow === true ? rangeOf(map) : undefined;
+  const flowEntries = map.flow === true ? mapEntries(map) : [];
+  const flowProperties = flowEntries.flatMap((entry) => {
+    const entryRange = propertyRange(map, entry.key);
+    return entryRange == null ? [] : [entryRange];
+  });
   const source: WorkflowJobSource = {
-    ...(map.flow === true && rangeOf(map) != null
-      ? {
+    ...(flowRange == null
+      ? {}
+      : {
           flow: {
-            range: rangeOf(map)!,
-            properties: mapEntries(map).flatMap((entry) => {
-              const entryRange = propertyRange(map, entry.key);
-              return entryRange == null ? [] : [entryRange];
-            }),
+            range: flowRange,
+            properties: flowProperties,
+            complete:
+              flowEntries.length === map.items.length &&
+              flowProperties.length === flowEntries.length,
           },
-        }
-      : {}),
+        }),
     ...(needsPropertyRange == null || parsedNeeds.valueRange == null
       ? {}
       : {
@@ -506,6 +520,7 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
             range: needsPropertyRange,
             valueRange: parsedNeeds.valueRange,
             items: parsedNeeds.items,
+            complete: parsedNeeds.complete,
           },
         }),
     ...(conditionRange == null ? {} : { condition: conditionRange }),

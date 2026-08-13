@@ -155,6 +155,13 @@ describe("workflow quick fixes", () => {
     expect(fixesForFinding(source, state.model, state.finding)).toEqual([]);
   });
 
+  it("does not edit a needs sequence whose unsupported items break exact source mapping", () => {
+    const source = "on: push\njobs:\n  a:\n  b:\n    needs: [a, 3, a]\n";
+    const state = finding(source, "duplicate-needs");
+    expect(fixesForFinding(source, state.model, state.finding)).toEqual([]);
+    expect(fixAllSafe(source, state.model, state.findings)).toEqual([]);
+  });
+
   it("combines overlapping safe findings into one non-overlapping edit set", () => {
     const source = "on: push\njobs:\n  a:\n    needs: [a, a]\n  b:\n    needs: [a, a]\n";
     const state = setup(source);

@@ -45,6 +45,9 @@ function removeProperty(text: string, job: WorkflowJob, range: SourceRange): Wor
   if (flow == null) {
     return [{ range: lineRange(text, range), replacement: "" }];
   }
+  if (!flow.complete) {
+    return [];
+  }
   const properties = flow.properties;
   const index = properties.findIndex(
     (property) => property.start === range.start && property.end === range.end,
@@ -149,7 +152,7 @@ function removeNeedsItems(
   removedIndexes: ReadonlySet<number>,
 ): WorkflowTextEdit[] {
   const source = job.source?.needs;
-  if (source == null || removedIndexes.size === 0) {
+  if (source == null || !source.complete || removedIndexes.size === 0) {
     return [];
   }
 
