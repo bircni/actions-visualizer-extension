@@ -153,6 +153,24 @@ describe("lintWorkflow output checks", () => {
     ).toEqual([]);
   });
 
+  it("recognises a reusable-workflow output that reads the complete outputs object", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      metadata:",
+          "        value: ${{ toJSON(jobs.build.outputs) }}",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
   it("does not offer output removal while a reusable-workflow output is incomplete", () => {
     expect(
       messages(

@@ -142,7 +142,7 @@ function readExpression(source: string | undefined, into: Map<string, Set<string
 /** Every `jobs.<jobId>.outputs.<name>` read by reusable-workflow outputs. */
 function collectJobOutputReads(node: ExpressionNode, into: Set<string>): void {
   const path = staticPath(node);
-  if (path?.[0] === "jobs" && path[1] != null && path[2] === "outputs" && path[3] != null) {
+  if (path?.[0] === "jobs" && path[1] != null && path[2] === "outputs") {
     into.add(path[1]);
     return;
   }
@@ -213,7 +213,7 @@ function readJobOutputExpression(source: string | undefined, into: Set<string>):
     }
     return true;
   } catch {
-    // A malformed expression is diagnosed elsewhere and cannot prove a consumer.
+    // An incomplete expression cannot prove which job output it consumes.
     return false;
   }
 }
