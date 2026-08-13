@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/bircni/actions-visualizer-extension/compare/v0.2.0..v0.3.0) - 2026-08-13
+
+### Added
+
+- **(diagnostics)** add workflow quick fixes ([#4](https://github.com/bircni/actions-visualizer-extension/issues/4)) - ([c8d32d2](https://github.com/bircni/actions-visualizer-extension/commit/c8d32d2a644ad83dd1cb4851b090512de4490551))
+
+### Internal
+
+- **(ci)** re-enable Open VSX publishing ([#5](https://github.com/bircni/actions-visualizer-extension/issues/5)) - ([54794e9](https://github.com/bircni/actions-visualizer-extension/commit/54794e9e51cbcfe60b57c1fd1da60b04d87cc9ef))
+
 ## [0.2.0](https://github.com/bircni/actions-visualizer-extension/compare/v0.1.0..v0.2.0) - 2026-08-03
 
 ### Added
