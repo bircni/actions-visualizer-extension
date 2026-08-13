@@ -9,14 +9,44 @@
  * host simply re-runs this and posts a fresh positioned graph.
  */
 
-import {
-  Graph,
-  layout as dagreLayout,
-  type EdgeLabel,
-  type GraphLabel,
-  type NodeLabel,
-} from "@dagrejs/dagre";
+import { layout as dagreLayout } from "@dagrejs/dagre";
+import { Graph } from "@dagrejs/graphlib";
 import type { GraphCard, GraphEdge, GraphModel, GraphHeader } from "./graph.js";
+
+type DagreGraphLabel = {
+  rankdir: LayoutDirection;
+  ranksep: number;
+  nodesep: number;
+  edgesep: number;
+  marginx: number;
+  marginy: number;
+  acyclicer: "greedy";
+};
+
+type DagreNodeLabel = {
+  width: number;
+  height: number;
+  x?: number;
+  y?: number;
+};
+
+type DagreEdgeLabel = Record<string, never>;
+
+type DagreGraph = {
+  setGraph(label: DagreGraphLabel): DagreGraph;
+  setDefaultEdgeLabel(factory: () => DagreEdgeLabel): DagreGraph;
+  setNode(id: string, label: DagreNodeLabel): DagreGraph;
+  setEdge(from: string, to: string, label: DagreEdgeLabel, name: string): DagreGraph;
+  node(id: string): DagreNodeLabel;
+};
+
+// Dagre 3.1.1's declarations compile with TypeScript 7, but Oxlint cannot follow
+// their Graphlib re-export yet. Keep that compatibility cast at the package boundary.
+const DagreGraph = Graph as unknown as new (options: {
+  multigraph: boolean;
+  compound: boolean;
+}) => DagreGraph;
+const layoutDagreGraph = dagreLayout as unknown as (graph: DagreGraph) => void;
 
 export type LayoutDirection = "LR" | "TB";
 
@@ -170,7 +200,7 @@ export function layoutGraph(model: GraphModel, options: LayoutOptions): Position
 
   // dagre's Graph defaults every label to `any`; naming the label types keeps the
   // results type-safe on the way back out.
-  const graph = new Graph<GraphLabel, NodeLabel, EdgeLabel>({ multigraph: true, compound: false });
+  const graph = new DagreGraph({ multigraph: true, compound: false });
   graph.setGraph({
     rankdir: options.direction,
     ranksep: METRICS.rankSeparation,
@@ -199,7 +229,7 @@ export function layoutGraph(model: GraphModel, options: LayoutOptions): Position
     }
   });
 
-  dagreLayout(graph);
+  layoutDagreGraph(graph);
 
   const cards: PositionedCard[] = model.cards.map((card) => {
     const size = measured.get(card.id) ?? measureCard(card, expandedRows);
