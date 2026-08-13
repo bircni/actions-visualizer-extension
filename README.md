@@ -9,7 +9,7 @@
 It is the graph GitHub shows you after a run, except you get it while you are still writing the file.
 
 [![CI](https://github.com/bircni/actions-visualizer-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/bircni/actions-visualizer-extension/actions/workflows/ci.yml)
-[![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.105-0098FF?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
+[![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.125-0098FF?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
