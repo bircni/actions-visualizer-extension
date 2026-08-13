@@ -3,6 +3,8 @@
   "compilerOptions": {
     "lib": ["esnext"],
     "target": "esnext",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "isolatedModules": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
