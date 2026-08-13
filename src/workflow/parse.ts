@@ -17,6 +17,7 @@ import type {
   WorkflowDiagnostic,
   WorkflowInput,
   WorkflowJob,
+  WorkflowJobSource,
   WorkflowMatrix,
   WorkflowModel,
   WorkflowOutput,
@@ -51,6 +52,17 @@ function mapEntries(map: YAMLMap): { key: string; keyNode: Node; value: unknown 
     entries.push({ key: keyNode.value, keyNode, value: item.value });
   }
   return entries;
+}
+
+/** A map property range including both its key and value. */
+function propertyRange(map: YAMLMap, key: string): SourceRange | undefined {
+  const entry = mapEntries(map).find((candidate) => candidate.key === key);
+  const keyRange = rangeOf(entry?.keyNode);
+  if (keyRange == null) {
+    return undefined;
+  }
+  const valueRange = rangeOf(entry?.value);
+  return { start: keyRange.start, end: valueRange?.end ?? keyRange.end };
 }
 
 /** Plain JS value for a YAML node, or the value itself when it is already plain. */
@@ -93,6 +105,37 @@ function asStringArray(value: unknown): string[] {
     return plain.filter((entry): entry is string => typeof entry === "string");
   }
   return [];
+}
+
+function parseNeeds(value: unknown): {
+  needs: string[];
+  items: { id: string; range: SourceRange }[];
+  valueRange?: SourceRange;
+} {
+  const valueRange = rangeOf(value);
+  if (isScalar(value) && typeof value.value === "string") {
+    const itemRange = rangeOf(value);
+    return {
+      needs: [value.value],
+      items: itemRange == null ? [] : [{ id: value.value, range: itemRange }],
+      ...(valueRange == null ? {} : { valueRange }),
+    };
+  }
+  if (isSeq(value)) {
+    const items = value.items.flatMap((item) => {
+      if (!isScalar(item) || typeof item.value !== "string") {
+        return [];
+      }
+      const itemRange = rangeOf(item);
+      return itemRange == null ? [] : [{ id: item.value, range: itemRange }];
+    });
+    return {
+      needs: items.map((item) => item.id),
+      items,
+      ...(valueRange == null ? {} : { valueRange }),
+    };
+  }
+  return { needs: asStringArray(value), items: [], ...(valueRange == null ? {} : { valueRange }) };
 }
 
 /** `runs-on` accepts a string, an array of labels, or a `{ group, labels }` map. */
@@ -400,7 +443,8 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
 
   const map = value;
   const name = asString(map.get("name", true));
-  const needs = asStringArray(map.get("needs", true));
+  const parsedNeeds = parseNeeds(map.get("needs", true));
+  const needs = parsedNeeds.needs;
   const condition = asString(map.get("if", true));
   const runsOn = describeRunsOn(map.get("runs-on", true));
   const environment = describeEnvironment(map.get("environment", true));
@@ -417,12 +461,30 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
     }
   }
 
+  const needsPropertyRange = propertyRange(map, "needs");
+  const conditionRange = propertyRange(map, "if");
+  const outputsRange = propertyRange(map, "outputs");
+  const source: WorkflowJobSource = {
+    ...(needsPropertyRange == null || parsedNeeds.valueRange == null
+      ? {}
+      : {
+          needs: {
+            range: needsPropertyRange,
+            valueRange: parsedNeeds.valueRange,
+            items: parsedNeeds.items,
+          },
+        }),
+    ...(conditionRange == null ? {} : { condition: conditionRange }),
+    ...(outputsRange == null ? {} : { outputs: outputsRange }),
+  };
+
   return {
     id,
     name: name ?? id,
     needs,
     outputs,
     steps: parseSteps(map.get("steps", true)),
+    ...(Object.keys(source).length === 0 ? {} : { source }),
     ...(env == null ? {} : { env }),
     ...(condition == null ? {} : { condition }),
     ...(runsOn == null ? {} : { runsOn }),

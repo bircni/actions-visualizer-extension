@@ -71,6 +71,7 @@ export class WorkflowDiagnostics implements vscode.Disposable {
         severityOf(finding.severity),
       );
       diagnostic.source = SOURCE;
+      diagnostic.code = finding.code;
       return diagnostic;
     });
 

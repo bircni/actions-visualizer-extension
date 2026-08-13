@@ -117,6 +117,30 @@ describe("parseWorkflow jobs", () => {
     expect(model.jobs.find((job) => job.id === "publish")?.needs).toEqual(["lint", "test"]);
   });
 
+  it("captures exact source locations for fixable job properties", () => {
+    const source = [
+      "on: push",
+      "jobs:",
+      "  build:",
+      "  deploy:",
+      "    needs: [build, build]",
+      "    if: false",
+      "    outputs:",
+      "      sha: value",
+      "",
+    ].join("\n");
+    const job = parseWorkflow(source).jobs.find((candidate) => candidate.id === "deploy");
+    expect(
+      job?.source?.needs?.items.map((item) => source.slice(item.range.start, item.range.end)),
+    ).toEqual(["build", "build"]);
+    expect(source.slice(job?.source?.condition.start, job?.source?.condition.end)).toBe(
+      "if: false",
+    );
+    expect(source.slice(job?.source?.outputs.start, job?.source?.outputs.end)).toBe(
+      "outputs:\n      sha: value\n",
+    );
+  });
+
   it("captures conditions, runners and environments", () => {
     const publish = parseWorkflow(fixture("fan-out.yml")).jobs.find((job) => job.id === "publish");
     expect(publish).toMatchObject({

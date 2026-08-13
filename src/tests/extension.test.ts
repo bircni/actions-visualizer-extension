@@ -9,6 +9,14 @@ let activeEditor:
   | { document: { uri: { fsPath: string }; getText: () => string }; viewColumn: number }
   | undefined;
 const shownPreviews: { path: string; column: number }[] = [];
+let codeActionRegistrations = 0;
+
+class CodeActionKind {
+  constructor(public readonly value: string) {}
+  public append(part: string): CodeActionKind {
+    return new CodeActionKind(`${this.value}.${part}`);
+  }
+}
 
 vi.mock("vscode", () => ({
   Uri: {
@@ -45,6 +53,10 @@ vi.mock("vscode", () => ({
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
   },
   languages: {
+    registerCodeActionsProvider: () => {
+      codeActionRegistrations += 1;
+      return { dispose: () => {} };
+    },
     createDiagnosticCollection: () => ({
       set: () => {},
       delete: () => {},
@@ -52,6 +64,10 @@ vi.mock("vscode", () => ({
     }),
   },
   DiagnosticSeverity: { Error: 0, Warning: 1, Information: 2 },
+  CodeActionKind: {
+    QuickFix: new CodeActionKind("quickfix"),
+    SourceFixAll: new CodeActionKind("source.fixAll"),
+  },
   Diagnostic: class {
     public source: string | undefined;
     constructor(
@@ -102,6 +118,7 @@ beforeEach(() => {
   outputChannels = [];
   activeEditor = undefined;
   shownPreviews.length = 0;
+  codeActionRegistrations = 0;
   delete process.env["ACTIONS_VISUALIZER_ENABLE_TEST_COMMANDS"];
 });
 
@@ -119,6 +136,7 @@ describe("activate", () => {
       "actionsVisualizer.showPreview",
       "actionsVisualizer.exportSvg",
     ]);
+    expect(codeActionRegistrations).toBe(1);
     expect(ctx.subscriptions.length).toBeGreaterThan(0);
   });
 

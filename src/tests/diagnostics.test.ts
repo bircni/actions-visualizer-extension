@@ -39,7 +39,7 @@ const documentOpened = emitter<unknown>();
 const documentChanged = emitter<{ document: unknown }>();
 const documentClosed = emitter<unknown>();
 
-type Entry = { uri: unknown; diagnostics: { message: string; severity: number }[] };
+type Entry = { uri: unknown; diagnostics: { code?: string; message: string; severity: number }[] };
 
 let published: Entry[] = [];
 let deleted: unknown[] = [];
@@ -49,7 +49,7 @@ let collectionDisposed = false;
 vi.mock("vscode", () => ({
   languages: {
     createDiagnosticCollection: () => ({
-      set: (uri: unknown, diagnostics: { message: string; severity: number }[]) => {
+      set: (uri: unknown, diagnostics: { code?: string; message: string; severity: number }[]) => {
         published.push({ uri, diagnostics });
       },
       delete: (uri: unknown) => {
@@ -112,6 +112,7 @@ describe("WorkflowDiagnostics", () => {
     const entry = published.at(-1);
     expect(entry?.diagnostics).toHaveLength(1);
     expect(entry?.diagnostics[0]?.message).toContain("`ghost`");
+    expect(entry?.diagnostics[0]?.code).toBe("missing-needs");
     // Errors map to the highest severity so they surface at the top.
     expect(entry?.diagnostics[0]?.severity).toBe(0);
     diagnostics.dispose();

@@ -81,6 +81,22 @@ export type WorkflowMatrix = {
   isDynamic: boolean;
 };
 
+/** Source locations needed for precise diagnostics and targeted YAML edits. */
+export type WorkflowJobSource = {
+  needs?: {
+    /** The complete `needs:` property, from its key through its value. */
+    range: SourceRange;
+    /** The scalar or sequence value, excluding the `needs:` key. */
+    valueRange: SourceRange;
+    /** One range per normalised dependency, in the same order as `needs`. */
+    items: { id: string; range: SourceRange }[];
+  };
+  /** The complete job-level `if:` property. */
+  condition?: SourceRange;
+  /** The complete job-level `outputs:` property. */
+  outputs?: SourceRange;
+};
+
 /** A single entry under `jobs:`. */
 export type WorkflowJob = {
   /** Job key as written in the YAML. */
@@ -104,6 +120,8 @@ export type WorkflowJob = {
   /** Outputs the job declares, used to tell an absent output from an unknown one. */
   outputs: WorkflowOutput[];
   steps: WorkflowStep[];
+  /** Optional syntax locations; runtime consumers should use the normalised fields above. */
+  source?: WorkflowJobSource;
   range?: SourceRange;
 };
 

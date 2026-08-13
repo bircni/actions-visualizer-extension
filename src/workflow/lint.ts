@@ -13,9 +13,25 @@ import type { SourceRange, WorkflowModel } from "./model.js";
 
 export type LintSeverity = "error" | "warning" | "information";
 
+export type LintCode =
+  | "missing-needs"
+  | "self-needs"
+  | "duplicate-needs"
+  | "invalid-job-context"
+  | "always-false-condition"
+  | "condition-parse-error"
+  | "unconsumed-outputs";
+
+type LintFix =
+  | { kind: "remove-need"; jobId: string; itemIndex: number; safe: boolean }
+  | { kind: "remove-condition"; jobId: string }
+  | { kind: "remove-outputs"; jobId: string };
+
 export type LintFinding = {
+  code: LintCode;
   severity: LintSeverity;
   message: string;
+  fix?: LintFix;
   /** Where to underline, when the parser captured a position. */
   range?: SourceRange;
 };
@@ -74,33 +90,58 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
 
   for (const job of model.jobs) {
     // A `needs:` target that does not exist makes the workflow invalid outright.
-    for (const need of job.needs) {
+    for (const [itemIndex, need] of job.needs.entries()) {
       if (!jobIds.has(need)) {
         findings.push({
+          code: "missing-needs",
           severity: "error",
           message: `Job \`${job.id}\` needs \`${need}\`, which this workflow does not define.`,
-          ...(job.range == null ? {} : { range: job.range }),
+          fix: { kind: "remove-need", jobId: job.id, itemIndex, safe: false },
+          ...(job.source?.needs?.items[itemIndex]?.range == null
+            ? job.range == null
+              ? {}
+              : { range: job.range }
+            : { range: job.source.needs.items[itemIndex].range }),
         });
       }
     }
 
     // A job listing itself can never start.
     if (job.needs.includes(job.id)) {
+      const itemIndex = job.needs.indexOf(job.id);
+      const itemRange = job.source?.needs?.items[itemIndex]?.range;
       findings.push({
+        code: "self-needs",
         severity: "error",
         message: `Job \`${job.id}\` lists itself in \`needs:\`, so it can never run.`,
-        ...(job.range == null ? {} : { range: job.range }),
+        fix: {
+          kind: "remove-need",
+          jobId: job.id,
+          itemIndex,
+          safe: true,
+        },
+        ...(itemRange == null
+          ? job.range == null
+            ? {}
+            : { range: job.range }
+          : { range: itemRange }),
       });
     }
 
     // Duplicate `needs:` entries are harmless but always a mistake.
     const seen = new Set<string>();
-    for (const need of job.needs) {
+    for (const [itemIndex, need] of job.needs.entries()) {
       if (seen.has(need)) {
         findings.push({
+          code: "duplicate-needs",
           severity: "warning",
           message: `Job \`${job.id}\` lists \`${need}\` in \`needs:\` more than once.`,
-          ...(job.range == null ? {} : { range: job.range }),
+          fix: { kind: "remove-need", jobId: job.id, itemIndex, safe: true },
+          ...(job.source?.needs?.items[itemIndex]?.range == null
+            ? job.range == null
+              ? {}
+              : { range: job.range }
+            : { range: job.source.needs.items[itemIndex].range }),
         });
       }
       seen.add(need);
@@ -114,11 +155,16 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
         }
         if (!JOB_CONTEXT_SET.has(root)) {
           findings.push({
+            code: "invalid-job-context",
             severity: "warning",
             message:
               `Job \`${job.id}\` uses \`${root}\` in its \`if:\`, but a job-level condition ` +
               `only has access to ${[...JOB_CONTEXTS].map((name) => `\`${name}\``).join(", ")}.`,
-            ...(job.range == null ? {} : { range: job.range }),
+            ...(job.source?.condition == null
+              ? job.range == null
+                ? {}
+                : { range: job.range }
+              : { range: job.source.condition }),
           });
         }
       }
@@ -127,9 +173,15 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
       const constant = evaluateCondition(job.condition, {});
       if (constant.error == null && constant.result === "false") {
         findings.push({
+          code: "always-false-condition",
           severity: "warning",
           message: `Job \`${job.id}\` has an \`if:\` that is always false, so it never runs.`,
-          ...(job.range == null ? {} : { range: job.range }),
+          fix: { kind: "remove-condition", jobId: job.id },
+          ...(job.source?.condition == null
+            ? job.range == null
+              ? {}
+              : { range: job.range }
+            : { range: job.source.condition }),
         });
       }
     }
@@ -138,9 +190,15 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
     const readers = neededBy.get(job.id) ?? [];
     if (job.outputs.length > 0 && readers.length === 0) {
       findings.push({
+        code: "unconsumed-outputs",
         severity: "information",
         message: `Job \`${job.id}\` declares outputs, but no other job needs it.`,
-        ...(job.range == null ? {} : { range: job.range }),
+        fix: { kind: "remove-outputs", jobId: job.id },
+        ...(job.source?.outputs == null
+          ? job.range == null
+            ? {}
+            : { range: job.range }
+          : { range: job.source.outputs }),
       });
     }
   }
@@ -156,9 +214,14 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
       const evaluation = evaluateCondition(job.condition, contexts);
       if (evaluation.error != null) {
         findings.push({
+          code: "condition-parse-error",
           severity: "warning",
           message: `Job \`${job.id}\` has an \`if:\` that does not parse: ${evaluation.error}`,
-          ...(job.range == null ? {} : { range: job.range }),
+          ...(job.source?.condition == null
+            ? job.range == null
+              ? {}
+              : { range: job.range }
+            : { range: job.source.condition }),
         });
       }
     }

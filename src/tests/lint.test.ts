@@ -18,8 +18,10 @@ describe("lintWorkflow needs checks", () => {
     const result = findings("on: push\njobs:\n  a:\n    needs: ghost\n");
     expect(result).toHaveLength(1);
     expect(result[0]?.severity).toBe("error");
+    expect(result[0]?.code).toBe("missing-needs");
     expect(result[0]?.message).toContain("`ghost`");
     expect(result[0]?.range).toBeDefined();
+    expect(result[0]?.fix).toMatchObject({ kind: "remove-need", safe: false });
   });
 
   it("reports a job that needs itself", () => {
@@ -29,9 +31,14 @@ describe("lintWorkflow needs checks", () => {
   });
 
   it("reports a duplicated `needs:` entry", () => {
-    expect(messages("on: push\njobs:\n  a:\n  b:\n    needs: [a, a]\n")).toContainEqual(
+    const result = findings("on: push\njobs:\n  a:\n  b:\n    needs: [a, a]\n");
+    expect(result.map((finding) => finding.message)).toContainEqual(
       "Job `b` lists `a` in `needs:` more than once.",
     );
+    expect(result.find((finding) => finding.code === "duplicate-needs")?.fix).toMatchObject({
+      kind: "remove-need",
+      safe: true,
+    });
   });
 
   it("stays quiet on a healthy workflow", () => {
