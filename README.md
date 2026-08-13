@@ -29,6 +29,7 @@ the ci, e2e and security jobs, with ci expanded to show its steps.](assets/examp
 | **Plays through a run** | Step through the workflow deciding what happens. Fail a step and watch `if: failure()` fire, `continue-on-error` absorb it, and the jobs downstream skip. |
 | **Honest about the unknown** | A condition that depends on a secret or a step output is marked undecided rather than guessed at — and you can pin a value to decide it. |
 | **Catches real mistakes** | Missing `needs:` targets, circular dependencies, always-false conditions and job conditions using a context GitHub only gives to steps — in the Problems panel, not just the graph. |
+| **Fixes safe mistakes** | Precise Quick Fixes remove duplicate or self-referential dependencies, with a source-wide Fix All that never applies behavior-changing edits. |
 | **Live** | Re-renders as you type; click any job to jump to its line in the YAML. |
 | **Fully keyboard accessible** | Arrow keys, `Enter` to reveal, `Space` to expand, with labels for screen readers. |
 | **GitHub and Gitea** | `.github/workflows` and `.gitea/workflows` — the syntax is the same. |
@@ -125,6 +126,19 @@ Nothing is executed and nothing is contacted — you are deciding what would hap
 | Solid line with end dots | A `needs:` dependency |
 | Faded dashed line | Every job behind this dependency is skipped |
 | Right-hand grey text | The job's `runs-on` |
+
+## Problems and Quick Fixes
+
+Actions Visualizer underlines the exact dependency, condition or outputs block responsible for a
+workflow problem. Open the editor's Quick Fix menu to apply a targeted correction:
+
+- Duplicate and self-referential `needs:` entries are preferred safe fixes and can be cleaned up
+  together with **Fix all safe Actions Visualizer issues**.
+- Removing an undefined dependency, an always-false condition or an unconsumed outputs block can
+  change workflow behaviour, so these actions are clearly named, never preferred and only run when
+  selected individually.
+- Problems without a generally correct rewrite, such as a job condition using a step-only context,
+  remain precise diagnostics rather than offering a guessed edit.
 
 ## Settings
 

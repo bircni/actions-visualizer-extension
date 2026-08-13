@@ -224,6 +224,30 @@ describe("Actions Visualizer extension host", function () {
     assert.ok(graph.warnings.some((warning) => warning.includes("ghost")));
   });
 
+  it("offers and applies a workflow Quick Fix through the VS Code API", async () => {
+    const document = await openWorkflow(
+      "quick-fix.yml",
+      ["on: push", "jobs:", "  build:", "  deploy:", "    needs: [build, build]", ""].join("\n"),
+    );
+    const duplicateOffset = document.getText().lastIndexOf("build");
+    const position = document.positionAt(duplicateOffset);
+    const actions = await waitFor(async () => {
+      const available = await vscode.commands.executeCommand<
+        (vscode.CodeAction | vscode.Command)[]
+      >("vscode.executeCodeActionProvider", document.uri, new vscode.Range(position, position));
+      const fix = available?.find(
+        (action): action is vscode.CodeAction =>
+          "kind" in action && action.title === "Remove duplicate dependency 'build'",
+      );
+      return fix == null ? undefined : [fix];
+    });
+
+    const edit = actions[0]?.edit;
+    assert.ok(edit, "expected the Quick Fix to contain a workspace edit");
+    assert.ok(await vscode.workspace.applyEdit(edit));
+    assert.ok(document.getText().includes("needs: [build]"));
+  });
+
   it("reports a parse error instead of an empty panel", async () => {
     await openWorkflow(
       "broken.yml",

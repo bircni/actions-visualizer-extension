@@ -18,8 +18,10 @@ describe("lintWorkflow needs checks", () => {
     const result = findings("on: push\njobs:\n  a:\n    needs: ghost\n");
     expect(result).toHaveLength(1);
     expect(result[0]?.severity).toBe("error");
+    expect(result[0]?.code).toBe("missing-needs");
     expect(result[0]?.message).toContain("`ghost`");
     expect(result[0]?.range).toBeDefined();
+    expect(result[0]?.fix).toMatchObject({ kind: "remove-need", safe: false });
   });
 
   it("reports a job that needs itself", () => {
@@ -29,9 +31,14 @@ describe("lintWorkflow needs checks", () => {
   });
 
   it("reports a duplicated `needs:` entry", () => {
-    expect(messages("on: push\njobs:\n  a:\n  b:\n    needs: [a, a]\n")).toContainEqual(
+    const result = findings("on: push\njobs:\n  a:\n  b:\n    needs: [a, a]\n");
+    expect(result.map((finding) => finding.message)).toContainEqual(
       "Job `b` lists `a` in `needs:` more than once.",
     );
+    expect(result.find((finding) => finding.code === "duplicate-needs")?.fix).toMatchObject({
+      kind: "remove-need",
+      safe: true,
+    });
   });
 
   it("stays quiet on a healthy workflow", () => {
@@ -106,6 +113,78 @@ describe("lintWorkflow output checks", () => {
     expect(
       messages(
         "on: push\njobs:\n  a:\n    outputs:\n      sha: ${{ steps.x.outputs.sha }}\n  b:\n    needs: a\n",
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps job outputs exported by a reusable workflow", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      artifact:",
+          "        value: ${{ jobs.build.outputs.artifact }}",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("recognises bracketed reusable-workflow output references", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      artifact:",
+          "        value: ${{ jobs['build'].outputs['artifact'] }}",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("recognises a reusable-workflow output that reads the complete outputs object", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      metadata:",
+          "        value: ${{ toJSON(jobs.build.outputs) }}",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not offer output removal while a reusable-workflow output is incomplete", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      artifact:",
+          "        value: '${{ jobs.build.outputs.artifact }'",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
       ),
     ).toEqual([]);
   });

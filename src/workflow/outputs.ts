@@ -139,6 +139,101 @@ function readExpression(source: string | undefined, into: Map<string, Set<string
   }
 }
 
+/** Every `jobs.<jobId>.outputs.<name>` read by reusable-workflow outputs. */
+function collectJobOutputReads(node: ExpressionNode, into: Set<string>): void {
+  const path = staticPath(node);
+  if (path?.[0] === "jobs" && path[1] != null && path[2] === "outputs") {
+    into.add(path[1]);
+    return;
+  }
+
+  switch (node.kind) {
+    case "property":
+    case "filter":
+      collectJobOutputReads(node.target, into);
+      break;
+    case "index":
+      collectJobOutputReads(node.target, into);
+      collectJobOutputReads(node.index, into);
+      break;
+    case "call":
+      for (const argument of node.args) {
+        collectJobOutputReads(argument, into);
+      }
+      break;
+    case "unary":
+      collectJobOutputReads(node.operand, into);
+      break;
+    case "binary":
+      collectJobOutputReads(node.left, into);
+      collectJobOutputReads(node.right, into);
+      break;
+    case "context":
+    case "literal":
+      break;
+    default:
+      break;
+  }
+}
+
+/** Static dotted/bracketed path segments, or undefined once an index is dynamic. */
+function staticPath(node: ExpressionNode): string[] | undefined {
+  if (node.kind === "context") {
+    return [node.name];
+  }
+  if (node.kind === "property") {
+    const target = staticPath(node.target);
+    return target == null ? undefined : [...target, node.name];
+  }
+  if (
+    node.kind === "index" &&
+    node.index.kind === "literal" &&
+    typeof node.index.value === "string"
+  ) {
+    const target = staticPath(node.target);
+    return target == null ? undefined : [...target, node.index.value];
+  }
+  return undefined;
+}
+
+function readJobOutputExpression(source: string | undefined, into: Set<string>): boolean {
+  if (source == null || source.trim().length === 0) {
+    return false;
+  }
+  try {
+    const template = parseTemplate(source);
+    if (template == null) {
+      collectJobOutputReads(parseExpression(source), into);
+      return true;
+    }
+    for (const part of template) {
+      if (part.kind === "expression") {
+        collectJobOutputReads(part.node, into);
+      }
+    }
+    return true;
+  } catch {
+    // An incomplete expression cannot prove which job output it consumes.
+    return false;
+  }
+}
+
+/**
+ * Job ids whose outputs form part of the reusable workflow's public contract.
+ * Undefined means that contract is present but not fully parseable, so callers
+ * must not claim an output is unused while the user is still editing it.
+ */
+export function workflowOutputJobs(model: WorkflowModel): Set<string> | undefined {
+  const jobs = new Set<string>();
+  let complete = true;
+  for (const trigger of model.triggers) {
+    for (const output of trigger.outputs ?? []) {
+      complete = readJobOutputExpression(output.expression, jobs) && complete;
+    }
+  }
+  return complete ? jobs : undefined;
+}
+
 /**
  * Step output names the workflow reads anywhere, keyed by step id.
  *

@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { logger, setOutputChannel } from "./logger.js";
 import { WorkflowDiagnostics } from "./preview/diagnostics.js";
+import { WorkflowCodeActionsProvider } from "./preview/codeActions.js";
 import { PreviewManager } from "./preview/previewPanel.js";
 import {
   dispatchPreviewTestMessage,
@@ -63,6 +64,11 @@ export function activate(context: vscode.ExtensionContext): void {
       showPreview(manager, false),
     ),
     vscode.commands.registerCommand("actionsVisualizer.exportSvg", () => manager.exportActive()),
+    vscode.languages.registerCodeActionsProvider(
+      [{ language: "yaml" }, { language: "github-actions-workflow" }],
+      new WorkflowCodeActionsProvider(),
+      WorkflowCodeActionsProvider.metadata,
+    ),
   );
 
   if (shouldRegisterTestCommands()) {
