@@ -10,6 +10,7 @@ let activeEditor:
   | undefined;
 const shownPreviews: { path: string; column: number }[] = [];
 let codeActionRegistrations = 0;
+let codeActionSelector: unknown;
 
 class CodeActionKind {
   constructor(public readonly value: string) {}
@@ -53,8 +54,9 @@ vi.mock("vscode", () => ({
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
   },
   languages: {
-    registerCodeActionsProvider: () => {
+    registerCodeActionsProvider: (selector: unknown) => {
       codeActionRegistrations += 1;
+      codeActionSelector = selector;
       return { dispose: () => {} };
     },
     createDiagnosticCollection: () => ({
@@ -119,6 +121,7 @@ beforeEach(() => {
   activeEditor = undefined;
   shownPreviews.length = 0;
   codeActionRegistrations = 0;
+  codeActionSelector = undefined;
   delete process.env["ACTIONS_VISUALIZER_ENABLE_TEST_COMMANDS"];
 });
 
@@ -137,6 +140,10 @@ describe("activate", () => {
       "actionsVisualizer.exportSvg",
     ]);
     expect(codeActionRegistrations).toBe(1);
+    expect(codeActionSelector).toEqual([
+      { language: "yaml" },
+      { language: "github-actions-workflow" },
+    ]);
     expect(ctx.subscriptions.length).toBeGreaterThan(0);
   });
 

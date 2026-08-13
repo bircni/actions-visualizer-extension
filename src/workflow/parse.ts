@@ -292,6 +292,19 @@ function parseInputs(value: unknown): WorkflowInput[] {
   return inputs;
 }
 
+/** Parses `workflow_call.outputs`, whose expressions live in each output's `value:`. */
+function parseWorkflowOutputs(value: unknown): WorkflowOutput[] {
+  if (!isMap(value)) {
+    return [];
+  }
+  const outputs: WorkflowOutput[] = [];
+  for (const entry of mapEntries(value)) {
+    const expression = isMap(entry.value) ? asString(entry.value.get("value", true)) : undefined;
+    outputs.push({ name: entry.key, ...(expression == null ? {} : { expression }) });
+  }
+  return outputs;
+}
+
 function emptyTrigger(event: string, range?: SourceRange): WorkflowTrigger {
   const trigger: WorkflowTrigger = { event, details: [], branches: [], tags: [], inputs: [] };
   return range ? { ...trigger, range } : trigger;
@@ -323,7 +336,17 @@ function parseTriggers(value: unknown): WorkflowTrigger[] {
       const branches = isMap(entry.value) ? asStringArray(entry.value.get("branches", true)) : [];
       const tags = isMap(entry.value) ? asStringArray(entry.value.get("tags", true)) : [];
       const inputs = isMap(entry.value) ? parseInputs(entry.value.get("inputs", true)) : [];
-      triggers.push({ ...base, details, branches, tags, inputs });
+      const outputs = isMap(entry.value)
+        ? parseWorkflowOutputs(entry.value.get("outputs", true))
+        : [];
+      triggers.push({
+        ...base,
+        details,
+        branches,
+        tags,
+        inputs,
+        ...(outputs.length === 0 ? {} : { outputs }),
+      });
     }
     return triggers;
   }

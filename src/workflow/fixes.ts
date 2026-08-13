@@ -141,7 +141,7 @@ function removeNeedsItems(
 
 function titleFor(finding: LintFinding, job: WorkflowJob): string {
   if (finding.fix?.kind === "remove-need") {
-    const dependency = job.needs[finding.fix.itemIndex] ?? "dependency";
+    const dependency = job.needs[finding.fix.itemIndexes[0] ?? -1] ?? "dependency";
     if (finding.code === "duplicate-needs") {
       return `Remove duplicate dependency '${dependency}'`;
     }
@@ -172,7 +172,7 @@ export function fixesForFinding(
 
   let edits: WorkflowTextEdit[] = [];
   if (fix.kind === "remove-need") {
-    edits = removeNeedsItems(text, job, new Set([fix.itemIndex]));
+    edits = removeNeedsItems(text, job, new Set(fix.itemIndexes));
   } else {
     const range = fix.kind === "remove-condition" ? job.source?.condition : job.source?.outputs;
     if (range != null) {
@@ -196,7 +196,9 @@ export function fixAllSafe(
       continue;
     }
     const indexes = indexesByJob.get(finding.fix.jobId) ?? new Set<number>();
-    indexes.add(finding.fix.itemIndex);
+    for (const itemIndex of finding.fix.itemIndexes) {
+      indexes.add(itemIndex);
+    }
     indexesByJob.set(finding.fix.jobId, indexes);
   }
 

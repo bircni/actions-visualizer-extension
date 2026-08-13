@@ -37,6 +37,8 @@ export type WorkflowTrigger = {
   tags: string[];
   /** Inputs declared for `workflow_dispatch` / `workflow_call`. */
   inputs: WorkflowInput[];
+  /** Outputs exposed by `workflow_call`, when this is a reusable workflow. */
+  outputs?: WorkflowOutput[];
   range?: SourceRange;
 };
 

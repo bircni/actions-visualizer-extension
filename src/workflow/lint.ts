@@ -9,6 +9,7 @@
 
 import { evaluateCondition } from "./expression/evaluate.js";
 import { buildContexts, JOB_CONTEXTS, type Simulation } from "./simulate.js";
+import { workflowOutputJobs } from "./outputs.js";
 import type { SourceRange, WorkflowModel } from "./model.js";
 
 export type LintSeverity = "error" | "warning" | "information";
@@ -23,7 +24,7 @@ export type LintCode =
   | "unconsumed-outputs";
 
 type LintFix =
-  | { kind: "remove-need"; jobId: string; itemIndex: number; safe: boolean }
+  | { kind: "remove-need"; jobId: string; itemIndexes: number[]; safe: boolean }
   | { kind: "remove-condition"; jobId: string }
   | { kind: "remove-outputs"; jobId: string };
 
@@ -82,6 +83,7 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
 
   const jobIds = new Set(model.jobs.map((job) => job.id));
   const neededBy = new Map<string, string[]>();
+  const exportedOutputJobs = workflowOutputJobs(model);
   for (const job of model.jobs) {
     for (const need of job.needs) {
       neededBy.set(need, [...(neededBy.get(need) ?? []), job.id]);
@@ -96,7 +98,7 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
           code: "missing-needs",
           severity: "error",
           message: `Job \`${job.id}\` needs \`${need}\`, which this workflow does not define.`,
-          fix: { kind: "remove-need", jobId: job.id, itemIndex, safe: false },
+          fix: { kind: "remove-need", jobId: job.id, itemIndexes: [itemIndex], safe: false },
           ...(job.source?.needs?.items[itemIndex]?.range == null
             ? job.range == null
               ? {}
@@ -108,7 +110,8 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
 
     // A job listing itself can never start.
     if (job.needs.includes(job.id)) {
-      const itemIndex = job.needs.indexOf(job.id);
+      const itemIndexes = job.needs.flatMap((need, index) => (need === job.id ? [index] : []));
+      const itemIndex = itemIndexes[0] ?? 0;
       const itemRange = job.source?.needs?.items[itemIndex]?.range;
       findings.push({
         code: "self-needs",
@@ -117,7 +120,7 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
         fix: {
           kind: "remove-need",
           jobId: job.id,
-          itemIndex,
+          itemIndexes,
           safe: true,
         },
         ...(itemRange == null
@@ -136,7 +139,7 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
           code: "duplicate-needs",
           severity: "warning",
           message: `Job \`${job.id}\` lists \`${need}\` in \`needs:\` more than once.`,
-          fix: { kind: "remove-need", jobId: job.id, itemIndex, safe: true },
+          fix: { kind: "remove-need", jobId: job.id, itemIndexes: [itemIndex], safe: true },
           ...(job.source?.needs?.items[itemIndex]?.range == null
             ? job.range == null
               ? {}
@@ -188,7 +191,7 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
 
     // An output declared but never read by a dependent job is usually a leftover.
     const readers = neededBy.get(job.id) ?? [];
-    if (job.outputs.length > 0 && readers.length === 0) {
+    if (job.outputs.length > 0 && readers.length === 0 && !exportedOutputJobs.has(job.id)) {
       findings.push({
         code: "unconsumed-outputs",
         severity: "information",

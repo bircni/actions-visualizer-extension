@@ -116,6 +116,42 @@ describe("lintWorkflow output checks", () => {
       ),
     ).toEqual([]);
   });
+
+  it("keeps job outputs exported by a reusable workflow", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      artifact:",
+          "        value: ${{ jobs.build.outputs.artifact }}",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("recognises bracketed reusable-workflow output references", () => {
+    expect(
+      messages(
+        [
+          "on:",
+          "  workflow_call:",
+          "    outputs:",
+          "      artifact:",
+          "        value: ${{ jobs['build'].outputs['artifact'] }}",
+          "jobs:",
+          "  build:",
+          "    outputs:",
+          "      artifact: ${{ steps.out.outputs.artifact }}",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("lintWorkflow resilience", () => {

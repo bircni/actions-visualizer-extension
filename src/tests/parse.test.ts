@@ -91,6 +91,26 @@ describe("parseWorkflow triggers", () => {
     ]);
   });
 
+  it("parses reusable-workflow output expressions", () => {
+    const model = parseWorkflow(
+      [
+        "on:",
+        "  workflow_call:",
+        "    outputs:",
+        "      artifact:",
+        "        description: Built artifact",
+        "        value: ${{ jobs.build.outputs.artifact }}",
+        "jobs:",
+        "  build:",
+        "    outputs:",
+        "      artifact: ${{ steps.out.outputs.artifact }}",
+      ].join("\n"),
+    );
+    expect(model.triggers[0]?.outputs).toEqual([
+      { name: "artifact", expression: "${{ jobs.build.outputs.artifact }}" },
+    ]);
+  });
+
   it("falls back to a string input for an unknown declared type", () => {
     const model = parseWorkflow(
       "on:\n  workflow_dispatch:\n    inputs:\n      x:\n        type: nonsense\njobs:\n  a:\n    steps: []\n",

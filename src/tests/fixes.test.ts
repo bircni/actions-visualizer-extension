@@ -68,6 +68,15 @@ describe("workflow quick fixes", () => {
     );
   });
 
+  it("removes every occurrence of a repeated self-dependency", () => {
+    const source = "on: push\njobs:\n  a:\n    needs: [a, a]\n    runs-on: linux\n";
+    const state = finding(source, "self-needs");
+    const fixes = fixesForFinding(source, state.model, state.finding);
+    expect(apply(source, fixes[0]?.edits ?? [])).toBe(
+      "on: push\njobs:\n  a:\n    runs-on: linux\n",
+    );
+  });
+
   it("offers missing dependency removal as an explicit non-preferred action", () => {
     const source = "on: push\njobs:\n  a:\n    needs: ghost\n";
     const state = finding(source, "missing-needs");

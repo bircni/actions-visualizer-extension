@@ -65,10 +65,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("actionsVisualizer.exportSvg", () => manager.exportActive()),
     vscode.languages.registerCodeActionsProvider(
-      [
-        { language: "yaml", scheme: "file" },
-        { language: "github-actions-workflow", scheme: "file" },
-      ],
+      [{ language: "yaml" }, { language: "github-actions-workflow" }],
       new WorkflowCodeActionsProvider(),
       WorkflowCodeActionsProvider.metadata,
     ),
