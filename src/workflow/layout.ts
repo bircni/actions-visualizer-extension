@@ -32,6 +32,7 @@ type DagreNodeLabel = {
 
 type DagreEdgeLabel = Record<string, never>;
 
+// oxlint-disable-next-line no-redeclare -- intentional type+value merge for the class-cast pattern below
 type DagreGraph = {
   setGraph(label: DagreGraphLabel): DagreGraph;
   setDefaultEdgeLabel(factory: () => DagreEdgeLabel): DagreGraph;
