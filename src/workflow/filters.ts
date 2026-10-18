@@ -102,36 +102,62 @@ export type RefFilterResult = {
   reason?: string;
 };
 
+/** The ref filters an event declares. The `-ignore` lists default to empty. */
+type RefFilters = {
+  branches: string[];
+  tags: string[];
+  branchesIgnore?: string[];
+  tagsIgnore?: string[];
+};
+
+/**
+ * Whether one kind of ref (branch or tag) passes its include and ignore lists.
+ * GitHub forbids declaring both for the same event; if a workflow does anyway,
+ * both are applied, which is the stricter reading.
+ */
+function passesKind(
+  name: string,
+  include: string[],
+  ignore: string[],
+  kind: "branches" | "tags",
+): RefFilterResult {
+  if (ignore.some((pattern) => matchesPattern(pattern, name))) {
+    return { matches: false, reason: `\`${name}\` matches a \`${kind}-ignore:\` filter` };
+  }
+  if (include.length > 0 && !matchesFilter(include, name)) {
+    return { matches: false, reason: `\`${name}\` does not match any \`${kind}:\` filter` };
+  }
+  return { matches: true };
+}
+
 /**
  * Whether an event with these `branches:` / `tags:` filters would fire for a ref.
  *
- * A tag ref is tested against `tags:`, a branch ref against `branches:`. Declaring
- * only `tags:` means branch pushes do not trigger the workflow at all, and vice
- * versa — which is the case the preview used to get wrong.
+ * A tag ref is tested against `tags:` and `tags-ignore:`, a branch ref against
+ * `branches:` and `branches-ignore:`. Declaring filters for only one kind means
+ * the other kind does not trigger the workflow at all — which is the case the
+ * preview used to get wrong.
  */
-export function refMatchesFilters(
-  ref: string,
-  filters: { branches: string[]; tags: string[] },
-): RefFilterResult {
+export function refMatchesFilters(ref: string, filters: RefFilters): RefFilterResult {
   const name = refName(ref);
+  const branchesIgnore = filters.branchesIgnore ?? [];
+  const tagsIgnore = filters.tagsIgnore ?? [];
+  const filtersBranches = filters.branches.length > 0 || branchesIgnore.length > 0;
+  const filtersTags = filters.tags.length > 0 || tagsIgnore.length > 0;
 
   if (isTagRef(ref)) {
-    if (filters.tags.length === 0) {
-      return filters.branches.length === 0
-        ? { matches: true }
-        : { matches: false, reason: "the event only declares `branches:` filters" };
+    if (!filtersTags) {
+      return filtersBranches
+        ? { matches: false, reason: "the event only declares branch filters" }
+        : { matches: true };
     }
-    return matchesFilter(filters.tags, name)
-      ? { matches: true }
-      : { matches: false, reason: `\`${name}\` does not match any \`tags:\` filter` };
+    return passesKind(name, filters.tags, tagsIgnore, "tags");
   }
 
-  if (filters.branches.length === 0) {
-    return filters.tags.length === 0
-      ? { matches: true }
-      : { matches: false, reason: "the event only declares `tags:` filters" };
+  if (!filtersBranches) {
+    return filtersTags
+      ? { matches: false, reason: "the event only declares tag filters" }
+      : { matches: true };
   }
-  return matchesFilter(filters.branches, name)
-    ? { matches: true }
-    : { matches: false, reason: `\`${name}\` does not match any \`branches:\` filter` };
+  return passesKind(name, filters.branches, branchesIgnore, "branches");
 }

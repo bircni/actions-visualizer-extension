@@ -283,8 +283,10 @@ describe("webview graph rendering", () => {
     harness = mount();
     harness.sendGraph(payload("missing-needs.yml"));
     const banner = harness.document.querySelector("#banner");
-    expect(banner?.className).toBe("visible");
+    expect(banner?.hidden).toBe(false);
     expect(banner?.textContent).toContain("nonexistent");
+    // Backticked names from the host render as code, not as literal backticks.
+    expect(banner?.querySelector("code")?.textContent).toBe("deploy");
   });
 
   it("shows a parse error instead of a graph", () => {
@@ -328,14 +330,16 @@ describe("webview simulation states", () => {
     harness = mount();
     harness.sendGraph(payload("unknown-condition.yml"));
     expect(harness.document.querySelectorAll(".row.unknown")).toHaveLength(1);
-    expect(harness.document.querySelector(".state-glyph.outline")?.textContent).toBe("?");
+    expect(harness.document.querySelector(".row.unknown .icon-glyph")?.textContent).toBe("?");
   });
 
   it("explains a row's state on hover", () => {
     harness = mount();
     harness.sendGraph(payload("conditional.yml", { event: "pull_request" }));
-    const skipped = harness.document.querySelector(".row.skipped title");
-    expect(skipped?.textContent).toContain("`if:` is false");
+    const skipped = harness.document.querySelector(".row.skipped > title");
+    // A tooltip is plain text, so the host's markdown backticks are dropped.
+    expect(skipped?.textContent).toContain("if: is false");
+    expect(skipped?.textContent).not.toContain("`");
   });
 });
 
@@ -387,13 +391,24 @@ describe("webview interaction", () => {
         ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
     };
     press("btn-refresh");
-    press("btn-expand");
-    press("btn-collapse");
+    press("btn-steps");
     press("btn-direction");
+    press("btn-export");
     expect(harness.posted).toContainEqual({ type: "refresh" });
+    // Nothing is expanded yet, so the one steps button expands everything.
     expect(harness.posted).toContainEqual({ type: "expandAll" });
-    expect(harness.posted).toContainEqual({ type: "collapseAll" });
     expect(harness.posted).toContainEqual({ type: "setDirection", direction: "TB" });
+    const exported = harness.posted.find((message) => message["type"] === "exportSvg");
+    expect(String(exported?.["svg"])).toContain("<svg");
+  });
+
+  it("collapses every row from the same steps button once any is expanded", () => {
+    harness = mount();
+    harness.sendGraph(payload("simple.yml", { expanded: ["row:build"] }));
+    harness.document
+      .querySelector("#btn-steps")
+      ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({ type: "collapseAll" });
   });
 
   it("serialises a standalone SVG on request", () => {
@@ -431,7 +446,7 @@ describe("webview pinning", () => {
     expect(fields.map((f) => f.querySelector(".name")?.textContent)).toEqual([
       "secrets.DEPLOY_KEY",
     ]);
-    expect(harness.document.querySelector("#simulation")?.className).toBe("visible");
+    expect(harness.document.querySelector("#simulation")?.hidden).toBe(false);
   });
 
   it("reports a pinned value to the host", () => {
@@ -480,7 +495,7 @@ describe("webview trigger filters", () => {
     harness = mount();
     harness.sendGraph(payload("filtered.yml", { ref: "refs/heads/topic" }));
     const banner = harness.document.querySelector("#banner");
-    expect(banner?.className).toBe("visible");
+    expect(banner?.hidden).toBe(false);
     expect(banner?.textContent).toContain("would not fire");
     // Everything is dimmed, since nothing would run.
     expect(harness.document.querySelectorAll(".row.skipped").length).toBeGreaterThan(0);
@@ -489,7 +504,7 @@ describe("webview trigger filters", () => {
   it("does not warn for a ref the filters accept", () => {
     harness = mount();
     harness.sendGraph(payload("filtered.yml"));
-    expect(harness.document.querySelector("#banner")?.className).toBe("");
+    expect(harness.document.querySelector("#banner")?.hidden).toBe(true);
     expect(harness.document.querySelectorAll(".row.skipped")).toHaveLength(0);
   });
 });
@@ -584,15 +599,15 @@ describe("webview playthrough", () => {
   it("keeps the bar hidden until a walk is running", () => {
     harness = mount();
     harness.sendGraph(payload(WALK));
-    expect(harness.document.querySelector("#playthrough")?.className).toBe("");
+    expect(harness.document.querySelector("#playthrough")?.hidden).toBe(true);
   });
 
   it("replaces the simulation controls with the playthrough bar", () => {
     harness = mount();
     harness.sendGraph(payload(WALK, { playthrough: walking() }));
     // Changing the event mid-walk would invalidate it, so those controls go away.
-    expect(harness.document.querySelector("#simulation")?.className).toBe("");
-    expect(harness.document.querySelector("#playthrough")?.className).toBe("visible");
+    expect(harness.document.querySelector("#controls")?.hidden).toBe(true);
+    expect(harness.document.querySelector("#playthrough")?.hidden).toBe(false);
   });
 
   it("says where the walk is and how far along", () => {
@@ -685,13 +700,15 @@ describe("webview playthrough", () => {
     expect(harness.posted).toContainEqual({ type: "startPlaythrough" });
   });
 
-  it("stops from the same button once a walk is running", () => {
+  it("leaves stopping to the walk's own bar, so there is one Stop", () => {
     harness = mount();
     harness.sendGraph(payload(WALK, { playthrough: walking() }));
+    expect(harness.document.querySelector("#btn-play")?.hidden).toBe(true);
     harness.document
-      .querySelector("#btn-play")
+      .querySelector("#stop-playthrough")
       ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
     expect(harness.posted).toContainEqual({ type: "stopPlaythrough" });
+    expect(harness.document.querySelectorAll("button[id$='stop-playthrough']")).toHaveLength(1);
   });
 
   it("marks the current, decided and unreached rows differently", () => {
@@ -750,5 +767,278 @@ describe("webview playthrough", () => {
       .querySelector('[data-row-id="row:build"]')
       ?.getAttribute("aria-label");
     expect(label).toContain("waiting for you to say what happened");
+  });
+});
+
+function rowElement(id: string): ReturnType<DomDocument["querySelector"]> {
+  return harness?.document.querySelector(`[data-row-id="${id}"]`) ?? null;
+}
+
+function inspectorElement(): DomElement {
+  return harness?.document.querySelector("#inspector");
+}
+
+describe("webview inspector", () => {
+  const row = rowElement;
+  const inspector = inspectorElement;
+
+  it("stays closed until a job is chosen", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    expect(inspector()?.hidden).toBe(true);
+  });
+
+  it("describes a clicked job: its condition, neighbours, runner and environment", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    harness.click(row("row:publish"));
+
+    expect(inspector()?.hidden).toBe(false);
+    expect(row("row:publish")?.getAttribute("class")).toContain("selected");
+    const text = inspector()?.textContent ?? "";
+    expect(inspector()?.querySelector("h2")?.textContent).toBe("publish");
+    expect(text).toContain("github.ref == 'refs/heads/main'");
+    expect(text).toContain("production");
+    expect(text).toContain("ubuntu-latest");
+    const terms = [...(inspector()?.querySelectorAll("dt") ?? [])].map((dt) => dt.textContent);
+    expect(terms).toEqual(["Condition", "Needs", "Needed by", "Runs on", "Environment"]);
+    // The click still jumps to the YAML, as it always has.
+    expect(harness.posted).toContainEqual(
+      expect.objectContaining({ type: "revealSource", nodeId: "row:publish" }),
+    );
+  });
+
+  it("lists a matrix's axes and how many jobs it makes", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    harness.click(row("row:test"));
+    const text = inspector()?.textContent ?? "";
+    expect(text).toContain("os: ubuntu-latest, macos-latest");
+    expect(text).toContain("4 combinations");
+    // A collapsed matrix row is titled by its count; the inspector names the job.
+    expect(inspector()?.querySelector("h2")?.textContent).toBe("4 jobs");
+    expect(inspector()?.querySelector(".job-id")?.textContent).toBe("test");
+  });
+
+  it("expands a matrix into a row per job, and back", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    harness.click(row("row:test"));
+    const toggle = inspector()?.querySelector("#inspector-matrix");
+    expect(toggle?.textContent).toBe("Show all 4 jobs");
+    toggle?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({ type: "toggleExpand", nodeId: "card:matrix:test" });
+
+    // Once expanded, the inspector follows the job onto one of its rows.
+    harness.sendGraph(payload("showcase.yml", { expanded: ["card:matrix:test"] }));
+    expect(inspector()?.querySelector("#inspector-matrix")?.textContent).toBe("Show as one row");
+  });
+
+  it("moves to a neighbouring job from its link", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    harness.click(row("row:publish"));
+    const link = [...(inspector()?.querySelectorAll("button.link") ?? [])].find(
+      (button) => button.textContent === "notify",
+    );
+    link?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(inspector()?.querySelector("h2")?.textContent).toBe("notify");
+    expect(row("row:notify")?.getAttribute("class")).toContain("selected");
+    expect(row("row:publish")?.getAttribute("class")).not.toContain("selected");
+  });
+
+  it("lights up the selected job's dependency path, and only that", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    expect(harness.document.querySelectorAll("path.edge.on-path")).toHaveLength(0);
+    harness.click(row("row:notify"));
+    // notify ← publish ← (test, build) ← lint/typecheck: every edge is upstream.
+    const edges = harness.document.querySelectorAll("path.edge").length;
+    expect(harness.document.querySelectorAll("path.edge.on-path")).toHaveLength(edges);
+
+    harness.click(row("row:build"));
+    // build sits between the lint card and publish; the test card's edges are not its own.
+    const lit = harness.document.querySelectorAll("path.edge.on-path").length;
+    expect(lit).toBeGreaterThan(0);
+    expect(lit).toBeLessThan(edges);
+  });
+
+  it("goes to a step's own line in the YAML", () => {
+    harness = mount();
+    harness.sendGraph(payload("simple.yml"));
+    harness.click(row("row:build"));
+    harness.posted.length = 0;
+    const steps = inspector()?.querySelectorAll(".step-item") ?? [];
+    expect(steps).toHaveLength(2);
+    steps[1]?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    const reveal = harness.posted.find((message) => message["type"] === "revealSource");
+    const jobReveal = payload("simple.yml").graph.cards[0]?.rows[0]?.range?.start ?? 0;
+    expect(Number(reveal?.["offset"])).toBeGreaterThan(jobReveal);
+  });
+
+  it("goes to a step's line from an expanded row in the graph too", () => {
+    harness = mount();
+    harness.sendGraph(payload("simple.yml", { expanded: ["row:build"] }));
+    harness.click(
+      harness.document.querySelector('[data-row-id="row:build"] [data-step-index="1"]'),
+    );
+    const reveal = harness.posted.find((message) => message["type"] === "revealSource");
+    expect(reveal).toMatchObject({ nodeId: "row:build" });
+    expect(harness.posted.some((message) => message["type"] === "toggleExpand")).toBe(false);
+  });
+
+  it("opens a local reusable workflow the job calls", () => {
+    harness = mount();
+    harness.sendGraph(payload("reusable.yml"));
+    harness.click(row("row:call"));
+    const open = [...(inspector()?.querySelectorAll("button.link") ?? [])].find(
+      (button) => button.textContent === "Open",
+    );
+    open?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({
+      type: "openReference",
+      value: "./.github/workflows/simple.yml",
+    });
+  });
+
+  it("plays just the inspected job", () => {
+    harness = mount();
+    harness.sendGraph(payload("simple.yml"));
+    harness.click(row("row:build"));
+    inspector()
+      ?.querySelector("#inspector-play")
+      ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(harness.posted).toContainEqual({ type: "startPlaythrough", nodeId: "build" });
+  });
+
+  it("closes on Escape, and on a click on empty canvas", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    harness.click(row("row:publish"));
+    const { window } = harness.dom;
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+    expect(inspector()?.hidden).toBe(true);
+
+    harness.click(row("row:publish"));
+    harness.click(harness.document.querySelector("#canvas"));
+    expect(inspector()?.hidden).toBe(true);
+  });
+
+  it("keeps showing the same job across a re-render", () => {
+    harness = mount();
+    harness.sendGraph(payload("showcase.yml"));
+    harness.click(row("row:publish"));
+    harness.sendGraph(payload("showcase.yml", { event: "pull_request" }));
+    expect(inspector()?.querySelector("h2")?.textContent).toBe("publish");
+    // On a pull request the condition is false, and the inspector says why.
+    expect(inspector()?.textContent).toContain("Would be skipped");
+  });
+
+  it("toggles steps from the chevron without jumping to the YAML", () => {
+    harness = mount();
+    harness.sendGraph(payload("simple.yml"));
+    harness.click(harness.document.querySelector('[data-row-id="row:build"] .chevron'));
+    expect(harness.posted).toContainEqual({ type: "toggleExpand", nodeId: "row:build" });
+    expect(harness.posted.some((message) => message["type"] === "revealSource")).toBe(false);
+  });
+});
+
+describe("webview status bar and controls", () => {
+  it("counts the jobs by what would happen to them", () => {
+    harness = mount();
+    harness.sendGraph(payload("conditional.yml", { event: "pull_request" }));
+    const summary = harness.document.querySelector("#summary")?.textContent ?? "";
+    expect(summary).toContain("would run");
+    expect(summary).toContain("1 skipped");
+  });
+
+  it("calls the ref the base branch for a pull request", () => {
+    harness = mount();
+    harness.sendGraph(payload("conditional.yml", { event: "push" }));
+    expect(harness.document.querySelector("#simulation .field .name")?.textContent).toBe("ref");
+    harness.sendGraph(payload("conditional.yml", { event: "pull_request" }));
+    expect(harness.document.querySelector("#simulation .field .name")?.textContent).toBe("base");
+  });
+
+  it("marks the simulated trigger as the checked option of a radio group", () => {
+    harness = mount();
+    harness.sendGraph(payload("conditional.yml", { event: "pull_request" }));
+    const checked = harness.document.querySelectorAll(
+      '#triggers [role="radio"][aria-checked="true"]',
+    );
+    expect([...checked].map((chip) => chip.textContent)).toEqual(["pull_request"]);
+  });
+
+  it("folds a long list of warnings behind a toggle", () => {
+    harness = mount();
+    const many = payload("missing-needs.yml");
+    harness.sendGraph({
+      ...many,
+      graph: { ...many.graph, warnings: ["first", "second", "third", "fourth"] },
+    });
+    const banner = harness.document.querySelector("#banner");
+    expect(banner?.querySelectorAll(".banner-row")).toHaveLength(2);
+    banner
+      ?.querySelector("#banner-toggle")
+      ?.dispatchEvent(new harness.dom.window.Event("click", { bubbles: true }));
+    expect(banner?.querySelectorAll(".banner-row")).toHaveLength(4);
+  });
+
+  it("pans on a plain scroll and zooms on a Ctrl-scroll", () => {
+    harness = mount();
+    harness.sendGraph(payload("fan-out.yml"));
+    const { window } = harness.dom;
+    const viewport = harness.document.querySelector("#viewport");
+    const transform = () =>
+      harness?.document.querySelector("#scene")?.getAttribute("transform") ?? "";
+    const scale = () => /scale\(([\d.]+)\)/.exec(transform())?.[1];
+
+    const before = scale();
+    viewport?.dispatchEvent(
+      new window.WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }),
+    );
+    expect(scale()).toBe(before);
+    expect(transform()).toContain("-100)");
+
+    viewport?.dispatchEvent(
+      new window.WheelEvent("wheel", {
+        deltaY: -100,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(Number(scale())).toBeGreaterThan(Number(before));
+  });
+
+  it("shows the keyboard shortcuts on ? and hides them on Escape", () => {
+    harness = mount();
+    harness.sendGraph(payload("fan-out.yml"));
+    const { window } = harness.dom;
+    const panel = harness.document.querySelector("#shortcuts");
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "?" }));
+    expect(panel?.hidden).toBe(false);
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape" }));
+    expect(panel?.hidden).toBe(true);
+  });
+
+  it("answers a playthrough step from the keyboard", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK, { playthrough: walking([decide("build", 0, "success")]) }));
+    const { window } = harness.dom;
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "f" }));
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "s" }));
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Backspace" }));
+    expect(harness.posted).toContainEqual({ type: "decideStep", outcome: "failure", outputs: {} });
+    expect(harness.posted).toContainEqual({ type: "decideStep", outcome: "success", outputs: {} });
+    expect(harness.posted).toContainEqual({ type: "undoStep" });
+  });
+
+  it("leaves letters alone outside a playthrough", () => {
+    harness = mount();
+    harness.sendGraph(payload(WALK));
+    const { window } = harness.dom;
+    window.dispatchEvent(new window.KeyboardEvent("keydown", { key: "s" }));
+    expect(harness.posted.some((message) => message["type"] === "decideStep")).toBe(false);
   });
 });

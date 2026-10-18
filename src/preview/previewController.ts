@@ -23,6 +23,7 @@ import {
   type Simulation,
 } from "../workflow/simulate.js";
 import type { WorkflowInput, WorkflowModel } from "../workflow/model.js";
+import { isLocalReference } from "../workflow/references.js";
 import type { PreviewSettings } from "./previewConfig.js";
 
 /** Messages the webview sends to the host. */
@@ -34,7 +35,7 @@ export type WebviewHostMessage = {
   offset?: number;
   /** Requested layout direction for `setDirection`. */
   direction?: string;
-  /** Event name for `setEvent`, or ref for `setRef`. */
+  /** Event name for `setEvent`, ref for `setRef`, or the `uses:` for `openReference`. */
   value?: string;
   /** Input name for `setInput`, or context path for `setPin`. */
   name?: string;
@@ -64,6 +65,8 @@ export type PreviewDeps = {
   postMessage: (message: HostWebviewMessage) => Thenable<boolean> | boolean;
   /** Moves the editor selection to the given source offset. */
   revealSource: (offset: number) => void | Promise<void>;
+  /** Opens the file a local `uses: ./…` names, telling the user when there is none. */
+  openReference: (reference: string) => void | Promise<void>;
   /** Prompts for a target path and writes the SVG; resolves to the written path. */
   saveSvg: (svg: string, defaultName: string) => Promise<string | undefined>;
   logInfo: (message: string, data?: Record<string, unknown>) => void;
@@ -393,6 +396,12 @@ export function createPreviewController(deps: PreviewDeps): PreviewController {
       case "revealSource":
         if (typeof message.offset === "number" && message.offset >= 0) {
           await deps.revealSource(message.offset);
+        }
+        return;
+      case "openReference":
+        // Only `./…` names a file in this repository; anything else is not ours to open.
+        if (typeof message.value === "string" && isLocalReference(message.value)) {
+          await deps.openReference(message.value);
         }
         return;
       case "exportSvg":

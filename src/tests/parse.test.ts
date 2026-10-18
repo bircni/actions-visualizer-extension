@@ -18,6 +18,8 @@ describe("parseWorkflow triggers", () => {
         details: [],
         branches: [],
         tags: [],
+        branchesIgnore: [],
+        tagsIgnore: [],
         inputs: [],
         range: expect.objectContaining({ start: expect.any(Number) }),
       },
@@ -369,5 +371,80 @@ describe("parseWorkflow error handling", () => {
   it("keeps `on:` a string rather than the YAML 1.1 boolean", () => {
     const model = parseWorkflow("on: push\njobs:\n  a:\n    steps: []\n");
     expect(model.triggers[0]?.event).toBe("push");
+  });
+});
+
+describe("parseWorkflow job settings shown in the inspector", () => {
+  const JOB = [
+    "on: push",
+    "jobs:",
+    "  deploy:",
+    "    environment:",
+    "      name: production",
+    "      url: ${{ steps.deploy.outputs.url }}",
+    "    timeout-minutes: 15",
+    "    concurrency:",
+    "      group: deploy-${{ github.ref }}",
+    "      cancel-in-progress: true",
+    "    permissions:",
+    "      contents: read",
+    "      id-token: write",
+    "    steps: []",
+    "  lint:",
+    "    environment: staging",
+    "    timeout-minutes: ${{ inputs.timeout }}",
+    "    concurrency: lint",
+    "    permissions: read-all",
+    "    steps: []",
+    "  locked:",
+    "    permissions: {}",
+    "    steps: []",
+  ].join("\n");
+
+  it("keeps an environment's name and url", () => {
+    const deploy = parseWorkflow(JOB).jobs.find((job) => job.id === "deploy");
+    expect(deploy?.environment).toBe("production");
+    expect(deploy?.environmentUrl).toBe("${{ steps.deploy.outputs.url }}");
+    const lint = parseWorkflow(JOB).jobs.find((job) => job.id === "lint");
+    expect(lint?.environment).toBe("staging");
+    expect(lint?.environmentUrl).toBeUndefined();
+  });
+
+  it("keeps the timeout as written, number or expression", () => {
+    const [deploy, lint] = parseWorkflow(JOB).jobs;
+    expect(deploy?.timeoutMinutes).toBe("15");
+    expect(lint?.timeoutMinutes).toBe("${{ inputs.timeout }}");
+  });
+
+  it("reads concurrency as a group, with or without cancellation", () => {
+    const [deploy, lint] = parseWorkflow(JOB).jobs;
+    expect(deploy?.concurrency).toEqual({
+      group: "deploy-${{ github.ref }}",
+      cancelInProgress: true,
+    });
+    expect(lint?.concurrency).toEqual({ group: "lint", cancelInProgress: false });
+  });
+
+  it("summarises permissions on one line", () => {
+    const [deploy, lint, locked] = parseWorkflow(JOB).jobs;
+    expect(deploy?.permissions).toBe("contents: read, id-token: write");
+    expect(lint?.permissions).toBe("read-all");
+    expect(locked?.permissions).toBe("none");
+  });
+
+  it("leaves every setting out when the job does not declare it", () => {
+    const job = parseWorkflow("on: push\njobs:\n  a:\n    steps: []\n").jobs[0];
+    expect(job).not.toHaveProperty("environmentUrl");
+    expect(job).not.toHaveProperty("timeoutMinutes");
+    expect(job).not.toHaveProperty("concurrency");
+    expect(job).not.toHaveProperty("permissions");
+  });
+
+  it("reads branches-ignore and tags-ignore filters", () => {
+    const trigger = parseWorkflow(
+      "on:\n  push:\n    branches-ignore: [gh-pages]\n    tags-ignore: ['*-rc*']\njobs:\n  a:\n",
+    ).triggers[0];
+    expect(trigger?.branchesIgnore).toEqual(["gh-pages"]);
+    expect(trigger?.tagsIgnore).toEqual(["*-rc*"]);
   });
 });

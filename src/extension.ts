@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { logger, setOutputChannel } from "./logger.js";
 import { WorkflowDiagnostics } from "./preview/diagnostics.js";
 import { WorkflowCodeActionsProvider } from "./preview/codeActions.js";
-import { PreviewManager } from "./preview/previewPanel.js";
+import { PreviewManager, VIEW_TYPE } from "./preview/previewPanel.js";
 import {
   dispatchPreviewTestMessage,
   getPreviewTestState,
@@ -51,7 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(channel);
   setOutputChannel(channel);
 
-  const manager = new PreviewManager(context.extensionUri);
+  const manager = new PreviewManager(context.extensionUri, context.workspaceState);
   const diagnostics = new WorkflowDiagnostics();
 
   context.subscriptions.push(
@@ -64,6 +64,11 @@ export function activate(context: vscode.ExtensionContext): void {
       showPreview(manager, false),
     ),
     vscode.commands.registerCommand("actionsVisualizer.exportSvg", () => manager.exportActive()),
+    // Without this a reload closes the preview; with it, the panel comes back
+    // showing the workflow it had.
+    vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
+      deserializeWebviewPanel: (panel) => manager.restore(panel),
+    }),
     vscode.languages.registerCodeActionsProvider(
       [{ language: "yaml" }, { language: "github-actions-workflow" }],
       new WorkflowCodeActionsProvider(),

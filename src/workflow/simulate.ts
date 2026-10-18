@@ -184,10 +184,29 @@ export function buildContexts(
   if (simulation.event != null) {
     github["event_name"] = simulation.event;
   }
-  if (simulation.ref != null) {
-    github["ref"] = simulation.ref;
-    github["ref_name"] = refName(simulation.ref);
-    github["ref_type"] = isTagRef(simulation.ref) ? "tag" : "branch";
+  if (isPullRequestEvent(simulation.event)) {
+    // The ref the user picks for a pull request is its base branch — that is what
+    // `branches:` filters match. Only `pull_request_target` runs on that ref; the
+    // others run on `refs/pull/<number>/merge`, whose number no preview can know,
+    // so `github.ref` stays unknown rather than wrongly matching the base.
+    if (simulation.ref != null) {
+      github["base_ref"] = refName(simulation.ref);
+      if (simulation.event === "pull_request_target") {
+        github["ref"] = simulation.ref;
+        github["ref_name"] = refName(simulation.ref);
+        github["ref_type"] = "branch";
+      }
+    }
+  } else {
+    if (simulation.ref != null) {
+      github["ref"] = simulation.ref;
+      github["ref_name"] = refName(simulation.ref);
+      github["ref_type"] = isTagRef(simulation.ref) ? "tag" : "branch";
+    }
+    // GitHub only sets these for pull request events; everywhere else they are
+    // empty, which is exactly what `if: github.head_ref != ''` tests for.
+    github["head_ref"] = "";
+    github["base_ref"] = "";
   }
   // `github.event.inputs` is the older spelling of `inputs` for workflow_dispatch,
   // and plenty of real workflows still use it.
@@ -258,11 +277,15 @@ export function triggerFires(model: WorkflowModel, simulation: Simulation): RefF
   if (trigger == null || simulation.ref == null) {
     return { matches: true };
   }
-  // Only ref-filtered events can fail to fire on a ref basis.
-  if (trigger.branches.length === 0 && trigger.tags.length === 0) {
-    return { matches: true };
-  }
-  return refMatchesFilters(simulation.ref, { branches: trigger.branches, tags: trigger.tags });
+  return refMatchesFilters(simulation.ref, trigger);
+}
+
+/**
+ * Events whose `branches:` filters match the pull request's base branch, and whose
+ * `github.ref` is therefore not the ref the user picks.
+ */
+function isPullRequestEvent(event: string | undefined): boolean {
+  return event?.startsWith("pull_request") === true;
 }
 
 /** True for a fully-known record, where a key it lacks means genuinely absent. */
@@ -465,14 +488,18 @@ function simulateSteps(model: WorkflowModel, simulation: Simulation, job: Workfl
  * Context paths the workflow references that the simulation cannot resolve.
  *
  * These are what the user can pin: every `secrets.*`, `vars.*` and step or job
- * output a condition depends on. Returned sorted so the UI order is stable.
+ * output that a still-undecided condition depends on. Returned sorted so the UI
+ * order is stable.
  */
 export function unresolvedPaths(model: WorkflowModel, simulation: Simulation): string[] {
   const contexts = buildContexts(model, simulation, { scope: "step" });
   const paths = new Set<string>();
 
   const collect = (condition: string | undefined): void => {
-    if (condition == null) {
+    // A condition already decided by what is known needs nothing pinned, even if
+    // it mentions something unknown: `github.event_name == 'push' && secrets.X`
+    // on a pull request is false whatever the secret holds.
+    if (condition == null || evaluateCondition(condition, contexts).result !== "unknown") {
       return;
     }
     for (const path of unresolvedReferences(condition, contexts)) {

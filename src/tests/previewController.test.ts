@@ -47,6 +47,7 @@ type Harness = {
   deps: PreviewDeps;
   posted: HostWebviewMessage[];
   revealed: number[];
+  opened: string[];
   setText: (text: string) => void;
   setSettings: (settings: Partial<PreviewSettings>) => void;
   saveSvg: ReturnType<typeof vi.fn>;
@@ -58,12 +59,14 @@ function harness(initialText = fixture("fan-out.yml")): Harness {
   let settings: PreviewSettings = { ...BASE_SETTINGS };
   const posted: HostWebviewMessage[] = [];
   const revealed: number[] = [];
+  const opened: string[] = [];
   const saveSvg = vi.fn(async () => "/tmp/graph.svg");
   const logError = vi.fn();
 
   return {
     posted,
     revealed,
+    opened,
     saveSvg,
     logError,
     setText: (next) => {
@@ -83,11 +86,18 @@ function harness(initialText = fixture("fan-out.yml")): Harness {
       revealSource: (offset) => {
         revealed.push(offset);
       },
+      openReference: (reference) => {
+        opened.push(reference);
+      },
       saveSvg,
       logInfo: () => {},
       logError,
     },
   };
+}
+
+function playthroughOf(posted: HostWebviewMessage[]) {
+  return lastGraph(posted).playthrough;
 }
 
 function lastGraph(posted: HostWebviewMessage[]): Extract<HostWebviewMessage, { type: "graph" }> {
@@ -509,10 +519,6 @@ describe("createPreviewController playthrough", () => {
     "      - run: echo ship",
   ].join("\n");
 
-  function playthroughOf(posted: HostWebviewMessage[]) {
-    return lastGraph(posted).playthrough;
-  }
-
   it("omits the playthrough entirely until one is started", async () => {
     const h = harness(WALK);
     const controller = createPreviewController(h.deps);
@@ -670,5 +676,28 @@ describe("createPreviewController playthrough", () => {
       outputs: { version: "2", "": "x", bad: 7 as unknown as string },
     });
     expect(controller.getState().playthrough?.decisions[0]?.outputs).toEqual({ version: "2" });
+  });
+});
+
+describe("opening local references", () => {
+  it("opens a reusable workflow or action in this repository", async () => {
+    const h = harness();
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({
+      type: "openReference",
+      value: "./.github/workflows/deploy.yml",
+    });
+    await controller.handleMessage({ type: "openReference", value: "./.github/actions/setup" });
+    expect(h.opened).toEqual(["./.github/workflows/deploy.yml", "./.github/actions/setup"]);
+  });
+
+  it("ignores references that do not name a file in this repository", async () => {
+    const h = harness();
+    const controller = createPreviewController(h.deps);
+    await controller.handleMessage({ type: "openReference", value: "actions/checkout@v5" });
+    await controller.handleMessage({ type: "openReference", value: "docker://alpine:3" });
+    await controller.handleMessage({ type: "openReference" });
+    expect(h.opened).toEqual([]);
+    expect(h.logError).not.toHaveBeenCalled();
   });
 });

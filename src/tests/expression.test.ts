@@ -201,9 +201,11 @@ describe("UNKNOWN propagation", () => {
   });
 });
 
-describe("evaluateCondition", () => {
-  const check = (condition: string): string => evaluateCondition(condition, CONTEXTS).result;
+function check(condition: string, runtime?: EvaluationRuntime): string {
+  return evaluateCondition(condition, CONTEXTS, runtime).result;
+}
 
+describe("evaluateCondition", () => {
   it("treats an empty condition as true", () => {
     expect(check("")).toBe("true");
     expect(check("   ")).toBe("true");
@@ -229,6 +231,20 @@ describe("evaluateCondition", () => {
     expect(check("secrets.DEPLOY_KEY != ''")).toBe("unknown");
   });
 
+  it("decides on either side of && and || when the other side is unknown", () => {
+    // Both values `secrets.A && false` could have are falsy, so as a condition it is false.
+    expect(check("secrets.A && false")).toBe("false");
+    expect(check("secrets.A || true")).toBe("true");
+    expect(check("!(secrets.A && false)")).toBe("true");
+    expect(check("github.event_name == 'pull_request' || secrets.A")).toBe("unknown");
+    expect(check("secrets.A && github.event_name == 'pull_request'")).toBe("false");
+    // Neither side decides these.
+    expect(check("secrets.A && true")).toBe("unknown");
+    expect(check("secrets.A || false")).toBe("unknown");
+    // The value itself stays honest: it is one of two things, so it is unknown.
+    expect(value("secrets.A && false")).toBe(UNKNOWN);
+  });
+
   it("reports a syntax error as unknown rather than throwing", () => {
     const evaluation = evaluateCondition("github.event_name ==", CONTEXTS);
     expect(evaluation.result).toBe("unknown");
@@ -247,9 +263,6 @@ describe("evaluateCondition", () => {
 });
 
 describe("status functions and the run's status", () => {
-  const check = (condition: string, runtime?: EvaluationRuntime): string =>
-    evaluateCondition(condition, CONTEXTS, runtime).result;
-
   it("reports success only while the job is succeeding", () => {
     expect(check("success()", { status: "success" })).toBe("true");
     expect(check("success()", { status: "failure" })).toBe("false");

@@ -8,7 +8,8 @@
  */
 
 import { evaluateCondition } from "./expression/evaluate.js";
-import { buildContexts, JOB_CONTEXTS, type Simulation } from "./simulate.js";
+import { findCycles } from "./graph.js";
+import { JOB_CONTEXTS } from "./simulate.js";
 import { workflowOutputJobs } from "./outputs.js";
 import type { SourceRange, WorkflowModel } from "./model.js";
 
@@ -18,6 +19,7 @@ export type LintCode =
   | "missing-needs"
   | "self-needs"
   | "duplicate-needs"
+  | "circular-needs"
   | "invalid-job-context"
   | "always-false-condition"
   | "condition-parse-error"
@@ -71,11 +73,10 @@ function referencedRoots(condition: string): string[] {
 /**
  * Checks a workflow and returns everything worth reporting.
  *
- * `simulation` is the event currently being previewed; checks that depend on it
- * (such as a condition that can never be true for the selected event) use it,
- * and the rest ignore it.
+ * Nothing here depends on the event being previewed: a problem in the Problems
+ * panel is a problem whichever event the graph happens to show.
  */
-export function lintWorkflow(model: WorkflowModel, simulation: Simulation): LintFinding[] {
+export function lintWorkflow(model: WorkflowModel): LintFinding[] {
   const findings: LintFinding[] = [];
   if (model.fatalError != null) {
     return findings;
@@ -174,7 +175,18 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
 
       // A condition that is constant regardless of context is dead weight.
       const constant = evaluateCondition(job.condition, {});
-      if (constant.error == null && constant.result === "false") {
+      if (constant.error != null) {
+        findings.push({
+          code: "condition-parse-error",
+          severity: "warning",
+          message: `Job \`${job.id}\` has an \`if:\` that does not parse: ${constant.error}`,
+          ...(job.source?.condition == null
+            ? job.range == null
+              ? {}
+              : { range: job.range }
+            : { range: job.source.condition }),
+        });
+      } else if (constant.result === "false") {
         findings.push({
           code: "always-false-condition",
           severity: "warning",
@@ -211,28 +223,29 @@ export function lintWorkflow(model: WorkflowModel, simulation: Simulation): Lint
     }
   }
 
-  // A trigger whose filters can never match the ref being previewed.
-  const trigger = model.triggers.find((candidate) => candidate.event === simulation.event);
-  if (trigger != null && simulation.ref != null) {
-    const contexts = buildContexts(model, simulation);
-    for (const job of model.jobs) {
-      if (job.condition == null) {
-        continue;
-      }
-      const evaluation = evaluateCondition(job.condition, contexts);
-      if (evaluation.error != null) {
-        findings.push({
-          code: "condition-parse-error",
-          severity: "warning",
-          message: `Job \`${job.id}\` has an \`if:\` that does not parse: ${evaluation.error}`,
-          ...(job.source?.condition == null
-            ? job.range == null
-              ? {}
-              : { range: job.range }
-            : { range: job.source.condition }),
-        });
-      }
+  // A `needs:` cycle means none of the jobs in it can ever start. A job that
+  // needs itself is the one-job case, already reported as `self-needs`.
+  const byId = new Map(model.jobs.map((job) => [job.id, job]));
+  for (const cycle of findCycles(model.jobs)) {
+    const first = cycle[0];
+    const last = byId.get(cycle.at(-1) ?? "");
+    if (cycle.length < 2 || first == null || last == null) {
+      continue;
     }
+    const itemIndex = last.needs.indexOf(first);
+    const itemRange = last.source?.needs?.items[itemIndex]?.range;
+    findings.push({
+      code: "circular-needs",
+      severity: "error",
+      message:
+        `Jobs ${[...cycle, first].map((id) => `\`${id}\``).join(" → ")} need each other ` +
+        `in a cycle, so none of them can start.`,
+      ...(itemRange == null
+        ? last.range == null
+          ? {}
+          : { range: last.range }
+        : { range: itemRange }),
+    });
   }
 
   return findings;

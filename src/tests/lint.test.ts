@@ -1,16 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { lintWorkflow } from "../workflow/lint.js";
 import { parseWorkflow } from "../workflow/parse.js";
-import type { Simulation } from "../workflow/simulate.js";
 
-const PUSH: Simulation = { event: "push", ref: "refs/heads/main", inputs: {} };
-
-function messages(source: string, simulation: Simulation = PUSH): string[] {
-  return lintWorkflow(parseWorkflow(source), simulation).map((finding) => finding.message);
+function messages(source: string): string[] {
+  return lintWorkflow(parseWorkflow(source)).map((finding) => finding.message);
 }
 
-function findings(source: string, simulation: Simulation = PUSH) {
-  return lintWorkflow(parseWorkflow(source), simulation);
+function findings(source: string) {
+  return lintWorkflow(parseWorkflow(source));
 }
 
 describe("lintWorkflow needs checks", () => {
@@ -197,5 +194,45 @@ describe("lintWorkflow resilience", () => {
 
   it("reports nothing for an empty workflow", () => {
     expect(messages("on: push\n")).toEqual([]);
+  });
+});
+
+describe("lintWorkflow cycles", () => {
+  const CYCLE = [
+    "on: push",
+    "jobs:",
+    "  a:",
+    "    needs: c",
+    "  b:",
+    "    needs: a",
+    "  c:",
+    "    needs: [setup, b]",
+    "  setup:",
+  ].join("\n");
+
+  it("reports a needs cycle once, naming every job in it", () => {
+    const cycles = findings(CYCLE).filter((finding) => finding.code === "circular-needs");
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]?.severity).toBe("error");
+    expect(cycles[0]?.message).toBe(
+      "Jobs `a` → `c` → `b` → `a` need each other in a cycle, so none of them can start.",
+    );
+  });
+
+  it("underlines the dependency that closes the cycle", () => {
+    const cycle = findings(CYCLE).find((finding) => finding.code === "circular-needs");
+    // `b` needs `a`, which is where the walk came back round to its start.
+    expect(CYCLE.slice(cycle?.range?.start, cycle?.range?.end)).toBe("a");
+    expect(CYCLE.slice(0, cycle?.range?.start)).toMatch(/b:\n {4}needs: $/);
+  });
+
+  it("leaves a job that needs itself to the self-needs check", () => {
+    const codes = findings("on: push\njobs:\n  a:\n    needs: a\n").map((finding) => finding.code);
+    expect(codes).toEqual(["self-needs"]);
+  });
+
+  it("stays quiet for a graph without cycles", () => {
+    const codes = findings("on: push\njobs:\n  a:\n  b:\n    needs: a\n  c:\n    needs: [a, b]\n");
+    expect(codes).toEqual([]);
   });
 });

@@ -14,9 +14,11 @@ It is the graph GitHub shows you after a run, except you get it while you are st
 
 </div>
 
-![The Actions Visualizer panel open beside ci.yml. The header shows the workflow name, its push and
-pull_request triggers with pull_request selected, and the ref being simulated. Below it a card lists
-the ci, e2e and security jobs, with ci expanded to show its steps.](assets/example/preview.png)
+![The Actions Visualizer panel open beside release.yml in VS Code. The header shows the Release
+workflow with its push and pull_request triggers, pull_request selected and main as the base branch.
+The graph shows Lint and Typecheck feeding Build and a six-job test matrix; Build is expanded to show
+its four steps, and Publish is dimmed and struck through because it would be skipped for a pull
+request. The status bar reads 5 jobs, 4 would run, 1 skipped.](assets/example/preview.png)
 
 ---
 
@@ -30,8 +32,9 @@ the ci, e2e and security jobs, with ci expanded to show its steps.](assets/examp
 | **Honest about the unknown** | A condition that depends on a secret or a step output is marked undecided rather than guessed at — and you can pin a value to decide it. |
 | **Catches real mistakes** | Missing `needs:` targets, circular dependencies, always-false conditions and job conditions using a context GitHub only gives to steps — in the Problems panel, not just the graph. |
 | **Fixes safe mistakes** | Precise Quick Fixes remove duplicate or self-referential dependencies, with a source-wide Fix All that never applies behavior-changing edits. |
-| **Live** | Re-renders as you type; click any job to jump to its line in the YAML. |
-| **Fully keyboard accessible** | Arrow keys, `Enter` to reveal, `Space` to expand, with labels for screen readers. |
+| **Job details at a click** | Select a job to see its condition, what it needs and what needs it, runner, environment, matrix, outputs, timeout, concurrency and permissions — with its dependency path lit up in the graph. |
+| **Live** | Re-renders as you type; click any job or step to jump to its line in the YAML, or open a local reusable workflow or action it uses. |
+| **Fully keyboard accessible** | Arrow keys, `Enter` for details, `Space` to expand, `?` for every shortcut, with labels for screen readers. |
 | **GitHub and Gitea** | `.github/workflows` and `.gitea/workflows` — the syntax is the same. |
 
 ## Getting started
@@ -41,23 +44,41 @@ the ci, e2e and security jobs, with ci expanded to show its steps.](assets/examp
    the Side** from the Command Palette.
 3. Click a trigger chip in the header to simulate that event. Fill in any inputs, the ref, and any
    values the preview cannot work out on its own.
-4. Click a job to jump to it in the YAML. `Alt`-click to expand its steps.
+4. Click a job to see its details beside the graph and jump to it in the YAML. Click its chevron to
+   show its steps in place.
 
 The preview follows your active editor: opening another workflow moves the existing panel rather than
 adding a second one, and switching to a file that is not a workflow leaves the graph as it was. It
-also works on a draft outside a workflows directory, as long as the file has both `on:` and `jobs:`.
+also works on a draft outside a workflows directory, as long as the file has both `on:` and `jobs:`,
+and it comes back showing the same workflow after VS Code reloads.
 
 ### Keyboard and pointer
 
 | | |
 | --- | --- |
-| Move between jobs | <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd>, or <kbd>Home</kbd> / <kbd>End</kbd> |
-| Reveal a job in the YAML | <kbd>Enter</kbd>, or click |
-| Expand a job's steps | <kbd>Space</kbd>, or <kbd>Alt</kbd>-click |
-| Zoom | <kbd>+</kbd> <kbd>-</kbd>, or the mouse wheel |
-| Fit the graph to the view | <kbd>0</kbd> |
-| Start or stop a playthrough | the **▶** button |
-| Pan | drag |
+| Move through the jobs in order | <kbd>↑</kbd> <kbd>↓</kbd>, or <kbd>Home</kbd> / <kbd>End</kbd> |
+| Move to the next or previous column | <kbd>→</kbd> <kbd>←</kbd> |
+| Show a job's details and reveal it in the YAML | <kbd>Enter</kbd>, or click |
+| Close the details | <kbd>Esc</kbd>, or click empty canvas |
+| Show or hide a job's steps | <kbd>Space</kbd>, the chevron, double-click or <kbd>Alt</kbd>-click |
+| Reveal a step in the YAML | click it, in the graph or in the details |
+| Pan | drag, or scroll |
+| Zoom | <kbd>+</kbd> <kbd>-</kbd>, <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + scroll, or pinch |
+| Fit the graph to the view, or show it at actual size | <kbd>0</kbd>, <kbd>1</kbd> |
+| Answer a playthrough step: succeeded, failed, undo | <kbd>S</kbd>, <kbd>F</kbd>, <kbd>Backspace</kbd> |
+| List every shortcut | <kbd>?</kbd> |
+
+## Inspecting a job
+
+Select a job and its details open beside the graph: the condition that decides it, what it needs
+and what needs it, its runner, environment, matrix, outputs, timeout, concurrency and permissions,
+and its steps. The jobs it depends on and the jobs that depend on it are lit up in the graph. Click a
+step to go to its line in the YAML, and follow a local reusable workflow or action with **Open**.
+
+![The graph with the Build job selected. Its edge from Lint and Typecheck and its dashed edge on to
+the skipped Publish job are highlighted in blue. Beside the graph, the job's details read: would run;
+needs lint and typecheck; needed by publish; runs on ubuntu-latest; outputs version; and four steps,
+each with a check mark.](assets/example/inspector.png)
 
 ## Simulating a run
 
@@ -71,11 +92,19 @@ The header is interactive. Click a trigger and the graph re-evaluates every job'
 Steps are evaluated too, against the wider set of contexts GitHub gives them. Skips propagate along
 `needs:` the way GitHub does, and `always()` / `!cancelled()` opt out of that.
 
-Type a ref that the workflow's `branches:` or `tags:` filters reject and the graph says the event
-would not fire at all, instead of pretending everything runs.
+Type a ref that the workflow's `branches:`, `tags:`, `branches-ignore:` or `tags-ignore:` filters
+reject and the graph says the event would not fire at all, instead of pretending everything runs.
+
+For a pull request the field is the **base** branch, because that is what its filters match. The
+run itself happens on `refs/pull/<number>/merge`, so `github.ref` stays unknown rather than wrongly
+equalling the base branch — and `github.base_ref` is the branch you picked. Outside pull requests,
+`github.head_ref` is empty, as it is on GitHub.
 
 When a condition depends on something no preview can know — a secret, a step output, another job's
-output — the header offers a field for it. Fill it in and every condition that depends on it decides.
+output — and nothing else decides it, the header offers a field for it. Fill it in and every
+condition that depends on it decides.
+
+The status bar sums it up: how many jobs would run, be skipped, or are undecided.
 
 <details>
 <summary><strong>What the expression evaluator supports</strong></summary>
@@ -83,7 +112,8 @@ output — the header offers a field for it. Fill it in and every condition that
 The full GitHub Actions expression language: contexts, property and index access, the `*` object
 filter, and every comparison and logical operator with GitHub's coercion rules — including
 case-insensitive string equality, cross-type numeric casting, and `&&` / `||` returning an operand
-rather than a boolean. Built-in functions: `contains`, `startsWith`, `endsWith`, `format`, `join`,
+rather than a boolean. A condition decides on either side of `&&` and `||`: `secrets.X && false` is
+false whatever the secret holds. Built-in functions: `contains`, `startsWith`, `endsWith`, `format`, `join`,
 `toJSON`, `fromJSON`, and the status functions `success`, `always`, `failure` and `cancelled`.
 
 Context availability is modelled too. A job-level `if:` sees only `github`, `needs`, `vars` and
@@ -106,7 +136,8 @@ follows the consequences:
   and it reaches `steps.<id>.outputs.*`, then `needs.<job>.outputs.*` for the jobs downstream.
 
 Undo takes back the last answer, restart empties the run, and stop returns to the static graph with
-your event, ref, inputs and pins untouched. Focus a job before pressing play to walk only that job.
+your event, ref, inputs and pins untouched. Select a job before pressing play, or use **Play this
+job** in its details, to walk only that job.
 
 Nothing is executed and nothing is contacted — you are deciding what would happen, not running it.
 
@@ -115,16 +146,17 @@ Nothing is executed and nothing is contacted — you are deciding what would hap
 | Element | Meaning |
 | --- | --- |
 | A card | One or more jobs at the same depth sharing the same `needs:` |
-| `Matrix: build` tab | A matrix job; click the row to expand it into one row per combination |
+| `Matrix: build` tab | A matrix job; **Show all jobs** in its details expands it into one row per combination |
 | Green check | The job would run for the simulated event |
-| Dashed grey circle, struck-through name | The job would be skipped; hover for why |
+| Grey circle with a slash, struck-through name | The job would be skipped; hover or select it for why |
 | Amber `?` | The condition cannot be decided statically; pin its value in the header |
-| Blue ring with a dot | The step a playthrough is waiting on |
+| Pulsing blue ring with a dot | The step a playthrough is waiting on |
 | Red ✕ | A step or job you marked as failed |
-| Hollow grey circle | Not reached yet in a playthrough |
+| Dotted grey circle | Not reached yet in a playthrough |
 | Red dashed card | A `needs:` reference to a job that does not exist |
 | Solid line with end dots | A `needs:` dependency |
 | Faded dashed line | Every job behind this dependency is skipped |
+| Blue line | Part of the selected job's dependency path, upstream or downstream |
 | Right-hand grey text | The job's `runs-on` |
 
 ## Problems and Quick Fixes
@@ -138,7 +170,8 @@ workflow problem. Open the editor's Quick Fix menu to apply a targeted correctio
   change workflow behaviour, so these actions are clearly named, never preferred and only run when
   selected individually.
 - Problems without a generally correct rewrite, such as a job condition using a step-only context,
-  remain precise diagnostics rather than offering a guessed edit.
+  a `needs:` cycle or an `if:` that does not parse, remain precise diagnostics rather than offering
+  a guessed edit.
 
 ## Settings
 
@@ -156,7 +189,7 @@ workflow problem. Open the editor's Quick Fix menu to apply a targeted correctio
 | --- | --- |
 | **Actions Visualizer: Open Workflow Graph to the Side** | Opens the graph beside the YAML |
 | **Actions Visualizer: Open Workflow Graph** | Opens the graph in the current column |
-| **Actions Visualizer: Export Workflow Graph as SVG** | Saves the current graph as an SVG file |
+| **Actions Visualizer: Export Workflow Graph as SVG** | Saves the current graph as a standalone SVG in the current theme's colours; also on the graph's toolbar |
 
 ## Good to know
 

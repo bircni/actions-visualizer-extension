@@ -7,17 +7,37 @@
 <link rel="stylesheet" href="__CODICONS_STYLE__" />
 <title>Workflow Graph</title>
 <style>
+  /*
+   * Every colour derives from a VS Code theme token, so the preview follows any
+   * theme. Foregrounds are always taken from the same family as the background
+   * they sit on — pairing a background token with an unrelated foreground token
+   * is how you end up with blue-on-blue text.
+   */
   :root {
-    --muted: var(--vscode-descriptionForeground, #6e7781);
-    --border: var(--vscode-panel-border, #d0d7de);
-    --card-bg: var(--vscode-editorWidget-background, #ffffff);
-    --edge: var(--vscode-descriptionForeground, #8c959f);
-    --accent: var(--vscode-textLink-foreground, #0969da);
-    --error: var(--vscode-errorForeground, #cf222e);
-    --warning: var(--vscode-editorWarning-foreground, #9a6700);
-    --ok: var(--vscode-testing-iconPassed, #1a7f37);
-    /* Kept in sync with METRICS in src/workflow/layout.ts. */
-    --row-height: 34px;
+    --ink: var(--vscode-editor-foreground, #3b3b3b);
+    --muted: var(--vscode-descriptionForeground, #616161);
+    --canvas: var(--vscode-editor-background, #ffffff);
+    --surface: color-mix(in srgb, var(--ink) 4%, var(--canvas));
+    --line: var(--vscode-contrastBorder, color-mix(in srgb, var(--ink) 15%, var(--canvas)));
+    --edge: color-mix(in srgb, var(--ink) 40%, var(--canvas));
+    --grid-dot: color-mix(in srgb, var(--ink) 13%, transparent);
+    --accent: var(--vscode-focusBorder, #005fb8);
+    --hover: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--ink) 7%, transparent));
+    --selected: var(
+      --vscode-list-inactiveSelectionBackground,
+      color-mix(in srgb, var(--accent) 16%, var(--canvas))
+    );
+    --state-run: var(--vscode-testing-iconPassed, #1a7f37);
+    --state-failure: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, #cf222e));
+    --state-unknown: var(--vscode-editorWarning-foreground, #9a6700);
+    --state-skipped: var(--muted);
+    --font: var(--vscode-font-family, system-ui, sans-serif);
+    --mono: var(--vscode-editor-font-family, ui-monospace, monospace);
+    --inspector-width: 320px;
+  }
+
+  * {
+    box-sizing: border-box;
   }
 
   html,
@@ -29,29 +49,147 @@
   }
 
   body {
-    background: var(--vscode-editor-background);
-    color: var(--vscode-editor-foreground);
-    font-family: var(--vscode-font-family);
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font);
     font-size: var(--vscode-font-size, 13px);
+    line-height: 1.4;
     display: flex;
     flex-direction: column;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /*
+   * VS Code gives webview `code` a tinted pill by default. Values here sit beside
+   * links and labels in the same font, so they stay plain and line up.
+   */
+  code,
+  .code {
+    padding: 0;
+    border-radius: 0;
+    background: none;
+    color: inherit;
+    font-family: var(--mono);
+    font-size: 0.92em;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  /* ---------- buttons ---------- */
+
+  .tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 5px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .tool:hover {
+    background: var(--vscode-toolbar-hoverBackground, var(--hover));
+  }
+
+  .tool[aria-pressed="true"] {
+    background: var(--vscode-toolbar-activeBackground, var(--hover));
+  }
+
+  .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .button.primary {
+    background: var(--vscode-button-background, #005fb8);
+    color: var(--vscode-button-foreground, #ffffff);
+  }
+
+  .button.primary:hover {
+    background: var(--vscode-button-hoverBackground, var(--vscode-button-background, #0258a8));
+  }
+
+  .button.secondary {
+    background: var(--vscode-button-secondaryBackground, var(--surface));
+    color: var(--vscode-button-secondaryForeground, var(--ink));
+  }
+
+  .button.secondary:hover {
+    background: var(
+      --vscode-button-secondaryHoverBackground,
+      var(--vscode-button-secondaryBackground, var(--hover))
+    );
+  }
+
+  .button .codicon {
+    font-size: 14px;
+  }
+
+  .link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--vscode-textLink-foreground, var(--accent));
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .link:hover {
+    text-decoration: underline;
   }
 
   /* ---------- header ---------- */
 
   #header {
     flex: 0 0 auto;
-    padding: 14px 18px 10px;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   #header-top {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
+    min-width: 0;
+  }
+
+  #heading {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   #title {
-    font-size: 1.25em;
+    margin: 0;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1.3;
     overflow: hidden;
@@ -59,240 +197,308 @@
     white-space: nowrap;
   }
 
+  #file {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   #toolbar {
-    margin-left: auto;
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 2px;
   }
 
-  .tool {
-    display: inline-flex;
+  #toolbar .divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 6px;
+    background: var(--line);
+  }
+
+  /* The label goes before the icons do: a narrow panel keeps every action. */
+  @media (max-width: 520px) {
+    #btn-play .label {
+      display: none;
+    }
+  }
+
+  .row-controls {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: center;
-    min-width: 26px;
-    height: 24px;
-    padding: 0 6px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    font: inherit;
-  }
-
-  .tool:hover {
-    background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
-  }
-
-  .tool:focus-visible,
-  .chip:focus-visible,
-  .control:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, var(--accent));
-    outline-offset: 1px;
+    gap: 6px 16px;
+    min-width: 0;
   }
 
   #triggers {
-    margin-top: 3px;
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 6px;
-    color: var(--muted);
+    align-items: center;
+    gap: 4px;
   }
 
   #triggers .label {
-    /* Mirrors GitHub's `on: pull_request` subtitle. */
+    color: var(--muted);
+    margin-right: 4px;
     white-space: nowrap;
   }
 
+  /*
+   * A trigger chip is a toggle, so it borrows the colours VS Code uses for a
+   * toggled option. `inputOption-active*` is a matched trio; the badge pair is the
+   * matched fallback.
+   */
   .chip {
-    padding: 1px 8px;
-    border: 1px solid transparent;
-    border-radius: 999px;
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
     background: transparent;
-    color: var(--muted);
+    color: var(--ink);
     cursor: pointer;
-    font: inherit;
+    white-space: nowrap;
   }
 
   .chip:hover {
-    border-color: var(--border);
+    background: var(--hover);
   }
 
-  /*
-   * `badge-background` and `badge-foreground` are a matched pair, so the label stays
-   * readable on every theme. Mixing a background token with an unrelated foreground
-   * token is how you end up with blue-on-blue.
-   */
   .chip.selected {
-    border-color: var(--vscode-badge-background, var(--accent));
-    background: var(--vscode-badge-background, rgba(9, 105, 218, 0.12));
-    color: var(--vscode-badge-foreground, #ffffff);
+    border-color: var(--vscode-inputOption-activeBorder, var(--vscode-badge-background, #005fb8));
+    background: var(--vscode-inputOption-activeBackground, var(--vscode-badge-background, #005fb8));
+    color: var(--vscode-inputOption-activeForeground, var(--vscode-badge-foreground, #ffffff));
     font-weight: 600;
   }
 
   #simulation {
-    margin-top: 8px;
-    display: none;
+    display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 14px;
-  }
-
-  #simulation.visible {
-    display: flex;
+    gap: 6px 16px;
   }
 
   .field {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    color: var(--muted);
+    gap: 6px;
+    min-width: 0;
   }
 
   .field > .name {
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .field.pin > .name,
+  .outputs .field > .name {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    color: var(--ink);
+  }
+
+  .group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    min-width: 0;
+  }
+
+  .group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
     white-space: nowrap;
   }
 
   .control {
-    background: var(--vscode-input-background, transparent);
-    color: var(--vscode-input-foreground, inherit);
-    border: 1px solid var(--vscode-input-border, var(--border));
-    border-radius: 4px;
-    padding: 1px 4px;
+    height: 24px;
+    min-width: 0;
+    max-width: 200px;
+    padding: 0 6px;
+    background: var(--vscode-input-background, var(--canvas));
+    color: var(--vscode-input-foreground, var(--ink));
+    border: 1px solid var(--vscode-input-border, var(--line));
+    border-radius: 3px;
     font: inherit;
-    max-width: 180px;
+  }
+
+  select.control {
+    background: var(--vscode-dropdown-background, var(--vscode-input-background, var(--canvas)));
+    color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground, var(--ink)));
+    border-color: var(--vscode-dropdown-border, var(--vscode-input-border, var(--line)));
+  }
+
+  .control:focus {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
   }
 
   input[type="checkbox"].control {
+    width: 16px;
+    height: 16px;
     padding: 0;
     accent-color: var(--accent);
   }
 
-  /* A pinned value is a stand-in for something only a real run would know. */
-  .control.ref {
-    min-width: 150px;
-    font-family: var(--vscode-editor-font-family, monospace);
+  .control.ref,
+  .field.pin .control {
+    font-family: var(--mono);
     font-size: 0.92em;
   }
 
-  .field.pin > .name {
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 0.92em;
-    opacity: 0.9;
+  .control.ref {
+    width: 190px;
+  }
+
+  .field.pin .control {
+    width: 130px;
   }
 
   .field.pin .control::placeholder {
     font-style: italic;
-    opacity: 0.7;
+    color: var(--vscode-input-placeholderForeground, var(--muted));
   }
 
   .clear-pin {
-    min-width: 18px;
-    height: 18px;
+    min-width: 20px;
+    height: 20px;
     padding: 0;
-    line-height: 1;
   }
 
   /* ---------- playthrough ---------- */
 
   #playthrough {
-    margin-top: 8px;
-    display: none;
+    display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 12px;
+    gap: 8px 12px;
   }
 
-  #playthrough.visible {
-    display: flex;
+  #playthrough .where {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
 
   #playthrough .position {
     font-weight: 600;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   #playthrough .progress {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     color: var(--muted);
     white-space: nowrap;
   }
 
-  .outcome {
+  .meter {
+    width: 64px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+  }
+
+  .meter > span {
+    display: block;
+    height: 100%;
+    background: var(--vscode-progressBar-background, var(--accent));
+  }
+
+  #playthrough .spacer {
+    flex: 1 1 auto;
+  }
+
+  /* Each group wraps as a whole, so Succeeded never ends up a line away from Failed. */
+  #playthrough .decision,
+  #playthrough .walk-controls {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    font: inherit;
+    gap: 6px;
+    white-space: nowrap;
   }
 
-  .outcome:hover {
-    border-color: var(--accent);
+  .outcome .icon-success {
+    color: var(--state-run);
   }
 
-  .outcome:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder, var(--accent));
-    outline-offset: 1px;
-  }
-
-  .outcome.succeeded {
-    color: var(--ok);
-  }
-
-  .outcome.failed {
-    color: var(--error);
+  .outcome .icon-failure {
+    color: var(--state-failure);
   }
 
   .outputs {
-    display: flex;
+    display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 10px;
+    gap: 6px 12px;
   }
 
-  .outputs .field > .name {
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 0.92em;
+  .outputs .control {
+    width: 120px;
   }
+
+  /* ---------- banner ---------- */
 
   #banner {
     flex: 0 0 auto;
-    display: none;
-    flex-direction: column;
-    gap: 2px;
-    margin: 0 18px 8px;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--warning);
-    max-height: 22vh;
-    overflow-y: auto;
-  }
-
-  #banner.visible {
     display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 30vh;
+    overflow-y: auto;
+    padding: 8px 16px;
+    background: var(--vscode-inputValidation-warningBackground, var(--surface));
+    color: var(--vscode-inputValidation-warningForeground, var(--ink));
+    border-bottom: 1px solid var(--vscode-inputValidation-warningBorder, var(--line));
   }
 
   .banner-row {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: flex-start;
   }
 
-  /* ---------- canvas ---------- */
+  .banner-row .codicon {
+    flex: 0 0 auto;
+    margin-top: 2px;
+    color: var(--state-unknown);
+  }
+
+  #banner .link {
+    align-self: flex-start;
+    margin-left: 24px;
+  }
+
+  /* ---------- stage: canvas and inspector ---------- */
+
+  #stage {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+    position: relative;
+  }
 
   #viewport {
     flex: 1 1 auto;
     position: relative;
     overflow: hidden;
     cursor: grab;
+    min-width: 0;
+    /* A faint dot grid that pans and zooms with the graph, so the canvas reads as movable. */
+    background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+    background-size: 20px 20px;
+    touch-action: none;
   }
 
   #viewport.panning {
@@ -318,62 +524,451 @@
   }
 
   #message.error {
-    color: var(--error);
+    color: var(--vscode-errorForeground, var(--state-failure));
   }
 
-  svg {
+  #message .message-box {
+    max-width: 52ch;
+    padding: 12px 16px;
+    border-radius: 6px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+  }
+
+  #canvas {
     display: block;
     width: 100%;
     height: 100%;
     user-select: none;
   }
 
+  /* ---------- inspector ---------- */
+
+  #inspector {
+    flex: 0 0 var(--inspector-width);
+    width: var(--inspector-width);
+    min-width: 0;
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    background: var(--vscode-sideBar-background, var(--canvas));
+    color: var(--vscode-sideBar-foreground, var(--ink));
+    padding: 14px 16px 20px;
+  }
+
+  /* On a narrow panel the inspector floats over the graph instead of squeezing it. */
+  @media (max-width: 640px) {
+    #inspector {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(var(--inspector-width), 88vw);
+      box-shadow: -8px 0 24px color-mix(in srgb, #000000 22%, transparent);
+      z-index: 2;
+    }
+  }
+
+  .inspector-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .inspector-head .state-icon {
+    margin-top: 3px;
+  }
+
+  .inspector-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .inspector-title h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .inspector-title .job-id {
+    color: var(--muted);
+  }
+
+  .inspector-status {
+    margin: 8px 0 0;
+    color: var(--muted);
+  }
+
+  .inspector-status code {
+    color: var(--ink);
+  }
+
+  .inspector-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 4px;
+  }
+
+  .props {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 8px 14px;
+    margin: 14px 0 0;
+  }
+
+  .props dt {
+    color: var(--muted);
+  }
+
+  .props dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .props .expression {
+    display: block;
+    padding: 4px 6px;
+    border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background, var(--surface));
+    white-space: pre-wrap;
+  }
+
+  .props .note {
+    color: var(--muted);
+  }
+
+  .job-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+
+  .matrix-axis + .matrix-axis {
+    margin-top: 2px;
+  }
+
+  .steps-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 18px 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .steps-heading .count {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .step-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .step-item {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    column-gap: 8px;
+    width: 100%;
+    padding: 5px 6px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .step-item:hover {
+    background: var(--hover);
+  }
+
+  .step-item .state-icon {
+    margin-top: 2px;
+  }
+
+  .step-item .step-name {
+    overflow-wrap: anywhere;
+  }
+
+  .step-item .step-meta {
+    grid-column: 2;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  .step-meta-actions {
+    padding: 0 6px 4px 30px;
+  }
+
+  .step-item.skipped .step-name {
+    text-decoration: line-through;
+    color: var(--muted);
+  }
+
+  .empty-note {
+    color: var(--muted);
+    margin: 4px 0 0;
+  }
+
+  /* ---------- status bar ---------- */
+
+  #statusbar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 30px;
+    padding: 2px 8px 2px 16px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  #summary {
+    flex: 1 1 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 14px;
+    min-width: 0;
+  }
+
+  .tally {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+
+  #view-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+
+  #btn-zoom-reset {
+    min-width: 46px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- shortcuts ---------- */
+
+  #shortcuts {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 3;
+    width: min(340px, calc(100% - 24px));
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+    padding: 12px 14px;
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--line));
+    border-radius: 6px;
+    background: var(--vscode-editorHoverWidget-background, var(--canvas));
+    color: var(--vscode-editorHoverWidget-foreground, var(--ink));
+    box-shadow: 0 6px 20px color-mix(in srgb, #000000 20%, transparent);
+  }
+
+  #shortcuts h2 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  #shortcuts dl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 6px 12px;
+    margin: 0;
+  }
+
+  #shortcuts dd {
+    margin: 0;
+    text-align: right;
+  }
+
+  kbd {
+    display: inline-block;
+    min-width: 18px;
+    padding: 0 4px;
+    border: 1px solid var(--vscode-keybindingLabel-border, var(--line));
+    border-bottom-color: var(--vscode-keybindingLabel-bottomBorder, var(--line));
+    border-radius: 3px;
+    background: var(--vscode-keybindingLabel-background, var(--surface));
+    color: var(--vscode-keybindingLabel-foreground, var(--ink));
+    font-family: var(--font);
+    font-size: 11px;
+    line-height: 17px;
+    text-align: center;
+  }
+
+</style>
+<style id="scene-style">
+  /* Everything the graph itself needs. Copied into an exported SVG, so it stands alone. */
+
+  /* ---------- state icons (shared by the graph, inspector and status bar) ---------- */
+
+  .state-icon {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .icon-disc.state-run,
+  .icon-disc.state-success {
+    fill: var(--state-run);
+  }
+
+  .icon-disc.state-failure {
+    fill: var(--state-failure);
+  }
+
+  .icon-ring {
+    fill: none;
+    stroke-width: 1.5;
+  }
+
+  .icon-ring.state-skipped {
+    stroke: var(--state-skipped);
+  }
+
+  .icon-ring.state-unknown {
+    stroke: var(--state-unknown);
+  }
+
+  .icon-ring.state-pending {
+    stroke: var(--state-skipped);
+    stroke-dasharray: 2 2.2;
+  }
+
+  .icon-ring.state-current {
+    stroke: var(--accent);
+    stroke-width: 2;
+  }
+
+  .icon-dot {
+    fill: var(--accent);
+  }
+
+  .icon-pulse {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pulse 1.6s ease-out infinite;
+  }
+
+  @keyframes pulse {
+    from {
+      opacity: 0.7;
+      transform: scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .icon-pulse {
+      animation: none;
+      display: none;
+    }
+  }
+
+  .icon-cut {
+    fill: none;
+    stroke: var(--canvas);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .icon-slash {
+    stroke: var(--state-skipped);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  .icon-glyph {
+    fill: var(--state-unknown);
+    font-family: var(--font);
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+
+  #canvas text,
+  svg.export text {
+    font-family: var(--font);
+  }
+
   .edge {
     fill: none;
     stroke: var(--edge);
     stroke-width: 1.5;
-    opacity: 0.75;
   }
 
   .edge.inactive {
-    opacity: 0.28;
+    opacity: 0.35;
     stroke-dasharray: 4 4;
   }
 
   .edge.broken {
-    stroke: var(--error);
-    stroke-dasharray: 4 4;
+    stroke: var(--state-failure);
+    stroke-dasharray: 4 3;
+  }
+
+  .edge.on-path {
+    stroke: var(--accent);
+    stroke-width: 2;
     opacity: 1;
   }
 
   .edge-dot {
-    fill: var(--edge);
+    fill: var(--canvas);
+    stroke: var(--edge);
+    stroke-width: 1.5;
   }
 
   .edge-dot.inactive {
     opacity: 0.35;
   }
 
+  .edge-dot.broken {
+    stroke: var(--state-failure);
+  }
+
+  .edge-dot.on-path {
+    stroke: var(--accent);
+    fill: var(--accent);
+  }
+
   .card-box {
-    fill: var(--card-bg);
-    stroke: var(--border);
+    fill: var(--surface);
+    stroke: var(--line);
     stroke-width: 1;
   }
 
   .card.missing .card-box {
-    stroke: var(--error);
+    stroke: var(--state-failure);
     stroke-dasharray: 4 3;
   }
 
   .card-tab {
-    fill: var(--card-bg);
-    stroke: var(--border);
+    fill: var(--surface);
+    stroke: var(--line);
     stroke-width: 1;
   }
 
   .card-tab-text {
-    fill: var(--vscode-editor-foreground);
-    font-size: 0.92em;
+    fill: var(--muted);
+    font-size: 11.5px;
   }
 
   .row {
@@ -384,126 +979,100 @@
     outline: none;
   }
 
-  .row:focus-visible .row-hit {
-    fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
-    stroke: var(--vscode-focusBorder, var(--accent));
-    stroke-width: 2;
-  }
-
   .row-hit {
     fill: transparent;
   }
 
-  .row:hover .row-hit {
-    fill: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+  .row:hover > .row-hit {
+    fill: var(--hover);
   }
 
-  .row-title {
-    fill: var(--vscode-editor-foreground);
-    font-size: 1.02em;
+  .row.selected > .row-hit {
+    fill: var(--selected);
   }
 
-  .row-meta,
-  .row-condition {
-    fill: var(--muted);
-    font-size: 0.86em;
+  .row-marker {
+    fill: transparent;
   }
 
-  .row-condition {
-    font-style: italic;
-  }
-
-  /* A skipped job stays in place, dimmed, so the layout never jumps. */
-  .row.skipped {
-    opacity: 0.42;
-  }
-
-  .row.skipped .row-title {
-    text-decoration: line-through;
-  }
-
-  .state-run,
-  .state-success {
-    fill: var(--ok);
-  }
-
-  .state-failure {
-    fill: var(--error);
-  }
-
-  /* Not reached yet: present, but clearly not part of the story so far. */
-  .state-pending {
-    fill: none;
-    stroke: var(--muted);
-    stroke-width: 1.5;
-    opacity: 0.6;
-  }
-
-  .state-current {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 2;
-  }
-
-  .state-current-dot {
+  .row.selected > .row-marker {
     fill: var(--accent);
   }
 
-  .row.pending {
-    opacity: 0.5;
+  .row:focus-visible > .row-hit {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+  }
+
+  .row-title {
+    fill: var(--ink);
+    font-size: 13px;
   }
 
   .row.current .row-title {
     font-weight: 600;
   }
 
-  .row-step.step-pending,
-  .step-marker.step-pending {
-    opacity: 0.45;
+  .row-meta {
+    fill: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
   }
 
-  .row-step.step-failure {
-    fill: var(--error);
+  .row-condition {
+    fill: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
   }
 
-  .row-step.step-current {
-    fill: var(--accent);
-    font-weight: 600;
+  /* A skipped job stays in place, dimmed, so the layout never jumps. */
+  .row.skipped .row-title {
+    text-decoration: line-through;
   }
 
-  .state-skipped {
+  .row.skipped > :not(.row-hit):not(.row-marker),
+  .row.pending > :not(.row-hit):not(.row-marker) {
+    opacity: 0.5;
+  }
+
+  .chevron-hit {
+    fill: transparent;
+    cursor: pointer;
+  }
+
+  .chevron:hover .chevron-hit {
+    fill: var(--hover);
+  }
+
+  .chevron-mark {
     fill: none;
     stroke: var(--muted);
     stroke-width: 1.5;
-    stroke-dasharray: 3 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
-  .state-unknown {
-    fill: none;
-    stroke: var(--warning);
-    stroke-width: 1.5;
+  .step-line {
+    cursor: pointer;
   }
 
-  .state-glyph {
-    fill: var(--vscode-editor-background, #fff);
-    font-size: 0.8em;
-    font-weight: 700;
+  .step-hit {
+    fill: transparent;
   }
 
-  .state-glyph.outline {
-    fill: var(--warning);
+  .step-line:hover .step-hit {
+    fill: var(--hover);
   }
 
   .row-step {
-    fill: var(--vscode-editor-foreground);
-    font-size: 0.86em;
-    opacity: 0.85;
+    fill: var(--ink);
+    font-size: 12px;
   }
 
   /* A step that would not run is dimmed the same way a skipped job is. */
-  .row-step.step-skipped,
-  .step-marker.step-skipped {
-    opacity: 0.45;
+  .step-line.step-skipped,
+  .step-line.step-pending {
+    opacity: 0.55;
   }
 
   .row-step.step-skipped {
@@ -511,125 +1080,183 @@
   }
 
   .row-step.step-unknown {
-    fill: var(--warning);
+    fill: var(--state-unknown);
   }
 
-  .step-marker {
-    fill: var(--muted);
+  .row-step.step-failure {
+    fill: var(--state-failure);
   }
 
-  .chevron {
-    fill: var(--muted);
-    font-size: 0.8em;
-  }
-
-  #legend {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    padding: 4px 18px;
-    border-top: 1px solid var(--border);
-    color: var(--muted);
-    font-size: 0.86em;
+  .row-step.step-current {
+    fill: var(--accent);
+    font-weight: 600;
   }
 </style>
 
-<div id="header">
+<header id="header">
   <div id="header-top">
-    <div>
-      <div id="title">Workflow Graph</div>
-      <div id="triggers"></div>
+    <div id="heading">
+      <h1 id="title">Workflow Graph</h1>
+      <span id="file"></span>
     </div>
-    <div id="toolbar">
-      <button class="tool" id="btn-play" title="Play through this workflow">
-        <span class="codicon codicon-play"></span>
+    <div id="toolbar" role="toolbar" aria-label="Graph actions">
+      <button class="button primary" id="btn-play" type="button" title="Step through a run, deciding what each step does">
+        <span class="codicon codicon-play"></span><span class="label">Play through</span>
       </button>
-      <button class="tool" id="btn-direction" title="Toggle layout direction">
-        <span class="codicon codicon-layout"></span>
-      </button>
-      <button class="tool" id="btn-expand" title="Expand all">
+      <span class="divider" id="toolbar-divider" aria-hidden="true"></span>
+      <button class="tool" id="btn-steps" type="button" title="Show every job's steps">
         <span class="codicon codicon-expand-all"></span>
       </button>
-      <button class="tool" id="btn-collapse" title="Collapse all">
-        <span class="codicon codicon-collapse-all"></span>
+      <button class="tool" id="btn-direction" type="button" title="Lay out top to bottom">
+        <span class="codicon codicon-arrow-right"></span>
       </button>
-      <button class="tool" id="btn-fit" title="Fit graph to view">
-        <span class="codicon codicon-screen-normal"></span>
+      <button class="tool" id="btn-export" type="button" title="Export as SVG">
+        <span class="codicon codicon-export"></span>
       </button>
-      <button class="tool" id="btn-zoom-out" title="Zoom out">
-        <span class="codicon codicon-zoom-out"></span>
-      </button>
-      <button class="tool" id="btn-zoom-in" title="Zoom in">
-        <span class="codicon codicon-zoom-in"></span>
-      </button>
-      <button class="tool" id="btn-refresh" title="Reload from the workflow file">
+      <button class="tool" id="btn-refresh" type="button" title="Reload from the workflow file">
         <span class="codicon codicon-refresh"></span>
       </button>
     </div>
   </div>
-  <div id="simulation"></div>
-  <div id="playthrough"></div>
-</div>
+  <div class="row-controls" id="controls">
+    <div id="triggers" role="radiogroup" aria-label="Event to simulate"></div>
+    <div id="simulation" hidden></div>
+  </div>
+  <div id="playthrough" hidden></div>
+</header>
 
-<div id="banner"></div>
+<div id="banner" role="status" hidden></div>
 
-<div id="viewport">
-  <svg
-    id="canvas"
-    xmlns="http://www.w3.org/2000/svg"
-    role="group"
-    aria-label="Workflow dependency graph"
-  >
-    <g id="scene"></g>
-  </svg>
-  <div id="message"></div>
-</div>
+<main id="stage">
+  <div id="viewport">
+    <svg
+      id="canvas"
+      xmlns="http://www.w3.org/2000/svg"
+      role="group"
+      aria-label="Workflow dependency graph"
+    >
+      <g id="scene"></g>
+    </svg>
+    <div id="message"></div>
+  </div>
+  <aside id="inspector" aria-label="Job details" hidden></aside>
+  <section id="shortcuts" aria-label="Keyboard shortcuts" hidden>
+    <h2>Keyboard shortcuts</h2>
+    <dl>
+      <dt>Move between jobs</dt>
+      <dd><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></dd>
+      <dt>First or last job</dt>
+      <dd><kbd>Home</kbd> <kbd>End</kbd></dd>
+      <dt>Show details and go to YAML</dt>
+      <dd><kbd>Enter</kbd></dd>
+      <dt>Show or hide steps</dt>
+      <dd><kbd>Space</kbd></dd>
+      <dt>Close details</dt>
+      <dd><kbd>Esc</kbd></dd>
+      <dt>Zoom</dt>
+      <dd><kbd>+</kbd> <kbd>-</kbd></dd>
+      <dt>Fit to view, actual size</dt>
+      <dd><kbd>0</kbd> <kbd>1</kbd></dd>
+      <dt>Pan</dt>
+      <dd>drag, or scroll</dd>
+      <dt>Zoom with the pointer</dt>
+      <dd><kbd>Ctrl</kbd> + scroll, or pinch</dd>
+      <dt>Step succeeded, failed</dt>
+      <dd><kbd>S</kbd> <kbd>F</kbd></dd>
+      <dt>Undo the last answer</dt>
+      <dd><kbd>Backspace</kbd></dd>
+    </dl>
+  </section>
+</main>
 
-<div id="legend">
-  <span>
-    Click a job to jump to it in the YAML · Alt-click to expand · Arrow keys to move,
-    Enter to reveal, Space to expand
-  </span>
-</div>
+<footer id="statusbar">
+  <div id="summary" aria-live="polite"></div>
+  <div id="view-controls" role="toolbar" aria-label="View">
+    <button class="tool" id="btn-zoom-out" type="button" title="Zoom out (-)">
+      <span class="codicon codicon-zoom-out"></span>
+    </button>
+    <button class="tool" id="btn-zoom-reset" type="button" title="Actual size (1)">100%</button>
+    <button class="tool" id="btn-zoom-in" type="button" title="Zoom in (+)">
+      <span class="codicon codicon-zoom-in"></span>
+    </button>
+    <button class="tool" id="btn-fit" type="button" title="Fit to view (0)">
+      <span class="codicon codicon-screen-full"></span>
+    </button>
+    <button class="tool" id="btn-help" type="button" title="Keyboard shortcuts (?)" aria-pressed="false">
+      <span class="codicon codicon-keyboard"></span>
+    </button>
+  </div>
+</footer>
 
 <script>
   (function () {
     "use strict";
 
-    var SVG_NS = "http://www.w3.org/2000/svg";
-    var MIN_SCALE = 0.2;
-    var MAX_SCALE = 3;
-    var ZOOM_STEP = 1.2;
-    // Kept in sync with METRICS in src/workflow/layout.ts.
-    var ROW_HEIGHT = 34;
-    var STEP_HEIGHT = 20;
-    var CONDITION_HEIGHT = 18;
-    var TAB_HEIGHT = 26;
-    var DOT_RADIUS = 5;
-    var ELBOW_RADIUS = 10;
-    var PADDING_X = 14;
-    var ICON_SIZE = 8;
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const MIN_SCALE = 0.2;
+    /**
+     * The smallest scale an automatic fit goes to. Below it the text cannot be
+     * read, so a wide graph in a narrow panel stays legible and pans instead; the
+     * Fit button still shows everything.
+     */
+    const READABLE_SCALE = 0.6;
+    const MAX_SCALE = 3;
+    const ZOOM_STEP = 1.2;
+    const GRID = 20;
+    const DRAG_THRESHOLD = 3;
+    /** Used only until the first graph arrives with the host's own metrics. */
+    const FALLBACK_METRICS = {
+      rowHeight: 36,
+      conditionHeight: 22,
+      stepHeight: 24,
+      tabHeight: 24,
+      cardPaddingY: 4,
+      dotRadius: 3.5,
+      elbowRadius: 8,
+    };
+    // Horizontal geometry inside a card. Vertical geometry comes from the host.
+    const ROW_INSET = 4;
+    const ICON_X = 20;
+    const TITLE_X = 36;
+    const CHEVRON_SIZE = 22;
+    const STEP_ICON_X = 42;
+    const STEP_TEXT_X = 54;
 
-    var vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : null;
+    const vscode = typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : null;
 
-    var scene = document.getElementById("scene");
-    var canvas = document.getElementById("canvas");
-    var viewport = document.getElementById("viewport");
-    var messageEl = document.getElementById("message");
-    var bannerEl = document.getElementById("banner");
-    var titleEl = document.getElementById("title");
-    var triggersEl = document.getElementById("triggers");
-    var simulationEl = document.getElementById("simulation");
-    var playthroughEl = document.getElementById("playthrough");
+    const $ = (id) => document.getElementById(id);
+    const scene = $("scene");
+    const canvas = $("canvas");
+    const viewport = $("viewport");
+    const messageEl = $("message");
+    const bannerEl = $("banner");
+    const titleEl = $("title");
+    const fileEl = $("file");
+    const triggersEl = $("triggers");
+    const simulationEl = $("simulation");
+    const controlsEl = $("controls");
+    const playthroughEl = $("playthrough");
+    const inspectorEl = $("inspector");
+    const summaryEl = $("summary");
+    const shortcutsEl = $("shortcuts");
 
-    var state = {
+    const state = {
       graph: null,
+      simulation: null,
+      playthrough: null,
+      expanded: [],
+      metrics: FALLBACK_METRICS,
       scale: 1,
       offsetX: 0,
       offsetY: 0,
       direction: "LR",
-      playing: false,
+      /** Row id shown in the inspector, or null when it is closed. */
+      selected: null,
+      /** Job behind the selection, so it survives a matrix collapsing or expanding. */
+      selectedJob: null,
+      /** True once the user pans or zooms, so a resize stops re-fitting under them. */
+      userMoved: false,
+      bannerExpanded: false,
     };
 
     function post(message) {
@@ -638,435 +1265,72 @@
       }
     }
 
+    // ---------- element helpers ----------
+
     function clear(node) {
       while (node.firstChild) {
         node.removeChild(node.firstChild);
       }
     }
 
-    function svgEl(name, attrs) {
-      var element = document.createElementNS(SVG_NS, name);
-      if (attrs) {
-        for (var key in attrs) {
-          if (Object.prototype.hasOwnProperty.call(attrs, key) && attrs[key] != null) {
-            element.setAttribute(key, String(attrs[key]));
-          }
+    function applyAttributes(element, attrs) {
+      for (const key in attrs || {}) {
+        if (Object.prototype.hasOwnProperty.call(attrs, key) && attrs[key] != null) {
+          element.setAttribute(key, String(attrs[key]));
         }
       }
       return element;
     }
 
-    function text(content, attrs, className) {
-      var element = svgEl("text", attrs);
-      if (className) {
-        element.setAttribute("class", className);
-      }
-      element.textContent = content;
-      return element;
-    }
-
-    /** Truncates to roughly the width available, since SVG text does not wrap. */
-    function fit(content, maxWidth) {
-      var maxChars = Math.max(4, Math.floor(maxWidth / 6.4));
-      return content.length <= maxChars ? content : content.slice(0, maxChars - 1) + "…";
-    }
-
-    // ---------- header ----------
-
-    function renderHeader(header, simulation) {
-      titleEl.textContent = header.title;
-      titleEl.setAttribute("title", header.fileName);
-      clear(triggersEl);
-
-      if (!header.triggers.length) {
-        return;
-      }
-      var label = document.createElement("span");
-      label.className = "label";
-      label.textContent = "on:";
-      triggersEl.appendChild(label);
-
-      for (var i = 0; i < header.triggers.length; i++) {
-        (function (trigger) {
-          var chip = document.createElement("button");
-          chip.className = "chip" + (trigger.selected ? " selected" : "");
-          chip.type = "button";
-          chip.textContent = trigger.event;
-          if (trigger.details.length) {
-            chip.setAttribute("title", trigger.details.join(" · "));
-          }
-          chip.addEventListener("click", function () {
-            post({ type: "setEvent", value: trigger.event });
-          });
-          triggersEl.appendChild(chip);
-        })(header.triggers[i]);
-      }
-
-      renderSimulation(simulation);
-    }
-
-    /**
-     * The playthrough bar: where you are, what you can say happened, and the
-     * outputs the step is expected to produce.
-     */
-    function renderPlaythrough(playthrough) {
-      clear(playthroughEl);
-      if (!playthrough) {
-        playthroughEl.className = "";
-        return;
-      }
-      playthroughEl.className = "visible";
-
-      var position = document.createElement("span");
-      position.className = "position";
-      if (playthrough.done) {
-        position.textContent = "Run complete";
-      } else if (playthrough.cursor) {
-        position.textContent = playthrough.cursor.jobName + " · " + playthrough.cursor.stepName;
-      } else {
-        position.textContent = "Nothing to run";
-      }
-      playthroughEl.appendChild(position);
-
-      var progress = document.createElement("span");
-      progress.className = "progress";
-      progress.textContent =
-        playthrough.progress.decided + " of " + playthrough.progress.total + " steps";
-      playthroughEl.appendChild(progress);
-
-      if (playthrough.cursor) {
-        playthroughEl.appendChild(outcomeButton("succeeded", "success", "codicon-pass"));
-        playthroughEl.appendChild(outcomeButton("failed", "failure", "codicon-error"));
-        playthroughEl.appendChild(
-          controlButton("Skip rest of job", "skip-job", function () {
-            post({ type: "skipJobRest" });
-          }),
-        );
-        playthroughEl.appendChild(outputFields(playthrough.cursor.outputNames));
-      }
-
-      if (playthrough.progress.decided > 0) {
-        playthroughEl.appendChild(
-          controlButton("Undo", "undo-step", function () {
-            post({ type: "undoStep" });
-          }),
-        );
-      }
-      playthroughEl.appendChild(
-        controlButton("Restart", "restart-playthrough", function () {
-          post({ type: "restartPlaythrough" });
-        }),
-      );
-      playthroughEl.appendChild(
-        controlButton("Stop", "stop-playthrough", function () {
-          post({ type: "stopPlaythrough" });
-        }),
-      );
-    }
-
-    /** Reads whatever the output fields currently hold. */
-    function collectOutputs() {
-      var outputs = {};
-      var fields = playthroughEl.querySelectorAll("input[data-output]");
-      for (var i = 0; i < fields.length; i++) {
-        var name = fields[i].getAttribute("data-output");
-        if (name && fields[i].value !== "") {
-          outputs[name] = fields[i].value;
-        }
-      }
-      return outputs;
-    }
-
-    function outcomeButton(label, outcome, icon) {
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "outcome " + label;
-      button.id = "outcome-" + outcome;
-      var glyph = document.createElement("span");
-      glyph.className = "codicon " + icon;
-      button.appendChild(glyph);
-      button.appendChild(document.createTextNode(label));
-      button.addEventListener("click", function () {
-        // Whatever is in the output fields belongs to this decision.
-        post({ type: "decideStep", outcome: outcome, outputs: collectOutputs() });
-      });
-      return button;
-    }
-
-    function controlButton(label, id, onClick) {
-      var button = document.createElement("button");
-      button.type = "button";
-      button.className = "tool";
-      button.id = id;
-      button.textContent = label;
-      button.addEventListener("click", onClick);
-      return button;
-    }
-
-    function outputFields(names) {
-      var wrapper = document.createElement("span");
-      wrapper.className = "outputs";
-      for (var i = 0; i < (names || []).length; i++) {
-        var entry = field(names[i]);
-        var control = document.createElement("input");
-        control.type = "text";
-        control.className = "control";
-        control.setAttribute("data-output", names[i]);
-        entry.appendChild(control);
-        wrapper.appendChild(entry);
-      }
-      return wrapper;
-    }
-
-    function field(name) {
-      var wrapper = document.createElement("label");
-      wrapper.className = "field";
-      var caption = document.createElement("span");
-      caption.className = "name";
-      caption.textContent = name;
-      wrapper.appendChild(caption);
-      return wrapper;
-    }
-
-    function renderSimulation(simulation) {
-      clear(simulationEl);
-      if (!simulation) {
-        simulationEl.className = "";
-        return;
-      }
-
-      var hasControls = false;
-
-      if (simulation.ref) {
-        hasControls = true;
-        var refField = field("ref");
-        // Editable rather than a fixed list: typing a ref the filters reject is
-        // how you find out the workflow would not fire at all.
-        var refInput = document.createElement("input");
-        refInput.type = "text";
-        refInput.className = "control ref";
-        refInput.value = simulation.ref;
-        refInput.setAttribute("list", "ref-choices");
-        refInput.addEventListener("change", function () {
-          post({ type: "setRef", value: refInput.value });
-        });
-
-        var list = document.createElement("datalist");
-        list.id = "ref-choices";
-        var choices = simulation.refChoices || [];
-        for (var i = 0; i < choices.length; i++) {
-          var option = document.createElement("option");
-          option.value = choices[i].ref;
-          option.textContent = choices[i].label;
-          list.appendChild(option);
-        }
-
-        refField.appendChild(refInput);
-        refField.appendChild(list);
-        simulationEl.appendChild(refField);
-      }
-
-      var inputs = simulation.inputs || [];
-      for (var j = 0; j < inputs.length; j++) {
-        hasControls = true;
-        simulationEl.appendChild(inputControl(inputs[j], simulation.values[inputs[j].name]));
-      }
-
-      // Values the preview cannot work out on its own. Filling one in decides
-      // every condition that depends on it.
-      var pinnable = simulation.pinnable || [];
-      var pinned = simulation.pinned || {};
-      for (var k = 0; k < pinnable.length; k++) {
-        hasControls = true;
-        simulationEl.appendChild(pinControl(pinnable[k], pinned[pinnable[k]]));
-      }
-
-      simulationEl.className = hasControls ? "visible" : "";
-    }
-
-    function inputControl(input, value) {
-      var wrapper = field(input.name);
-      if (input.description) {
-        wrapper.setAttribute("title", input.description);
-      }
-      var control;
-
-      if (input.type === "boolean") {
-        control = document.createElement("input");
-        control.type = "checkbox";
-        control.className = "control";
-        control.checked = value === true || value === "true";
-        control.addEventListener("change", function () {
-          post({ type: "setInput", name: input.name, input: control.checked });
-        });
-      } else if (input.type === "choice" && input.options && input.options.length) {
-        control = document.createElement("select");
-        control.className = "control";
-        for (var i = 0; i < input.options.length; i++) {
-          var option = document.createElement("option");
-          option.value = input.options[i];
-          option.textContent = input.options[i];
-          if (input.options[i] === String(value)) {
-            option.selected = true;
-          }
-          control.appendChild(option);
-        }
-        control.addEventListener("change", function () {
-          post({ type: "setInput", name: input.name, input: control.value });
-        });
-      } else {
-        control = document.createElement("input");
-        control.type = input.type === "number" ? "number" : "text";
-        control.className = "control";
-        control.value = value == null ? "" : String(value);
-        control.addEventListener("change", function () {
-          post({ type: "setInput", name: input.name, input: control.value });
-        });
-      }
-
-      wrapper.appendChild(control);
-      return wrapper;
-    }
-
-    function pinControl(path, value) {
-      var wrapper = field(path);
-      wrapper.className = "field pin";
-      wrapper.setAttribute("title", "Not known statically — set a value to decide conditions on it");
-
-      var control = document.createElement("input");
-      control.type = "text";
-      control.className = "control";
-      control.placeholder = "unknown";
-      control.value = value == null ? "" : String(value);
-      control.addEventListener("change", function () {
-        post({ type: "setPin", name: path, input: control.value });
-      });
-      wrapper.appendChild(control);
-
-      if (value != null) {
-        var clear = document.createElement("button");
-        clear.type = "button";
-        clear.className = "tool clear-pin";
-        clear.title = "Clear this value";
-        clear.textContent = "×";
-        clear.addEventListener("click", function () {
-          post({ type: "setPin", name: path });
-        });
-        wrapper.appendChild(clear);
-      }
-      return wrapper;
-    }
-
-    function renderBanner(warnings) {
-      clear(bannerEl);
-      if (!warnings || !warnings.length) {
-        bannerEl.className = "";
-        return;
-      }
-      bannerEl.className = "visible";
-      for (var i = 0; i < warnings.length; i++) {
-        var row = document.createElement("div");
-        row.className = "banner-row";
-        var icon = document.createElement("span");
-        icon.className = "codicon codicon-warning";
-        var label = document.createElement("span");
-        label.textContent = warnings[i];
-        row.appendChild(icon);
-        row.appendChild(label);
-        bannerEl.appendChild(row);
-      }
-    }
-
-    // ---------- graph ----------
-
-    /** Orthogonal path with rounded corners through the elbow points. */
-    function edgePath(points) {
-      if (!points.length) {
-        return "";
-      }
-      if (points.length === 2) {
-        return "M " + points[0].x + " " + points[0].y + " L " + points[1].x + " " + points[1].y;
-      }
-      var d = "M " + points[0].x + " " + points[0].y;
-      for (var i = 1; i < points.length - 1; i++) {
-        var previous = points[i - 1];
-        var corner = points[i];
-        var next = points[i + 1];
-        var inLength = Math.hypot(corner.x - previous.x, corner.y - previous.y);
-        var outLength = Math.hypot(next.x - corner.x, next.y - corner.y);
-        var radius = Math.min(ELBOW_RADIUS, inLength / 2, outLength / 2);
-        if (radius <= 0.5) {
-          d += " L " + corner.x + " " + corner.y;
+    function appendChildren(element, children) {
+      for (const child of children) {
+        if (child == null || child === false) {
           continue;
         }
-        var enterX = corner.x - ((corner.x - previous.x) / inLength) * radius;
-        var enterY = corner.y - ((corner.y - previous.y) / inLength) * radius;
-        var exitX = corner.x + ((next.x - corner.x) / outLength) * radius;
-        var exitY = corner.y + ((next.y - corner.y) / outLength) * radius;
-        d += " L " + enterX + " " + enterY;
-        d += " Q " + corner.x + " " + corner.y + " " + exitX + " " + exitY;
+        element.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
       }
-      var last = points[points.length - 1];
-      return d + " L " + last.x + " " + last.y;
+      return element;
     }
+
+    /** Creates an HTML element. */
+    function h(tag, attrs, ...children) {
+      return appendChildren(applyAttributes(document.createElement(tag), attrs), children);
+    }
+
+    /** Creates an SVG element. */
+    function s(tag, attrs, ...children) {
+      return appendChildren(applyAttributes(document.createElementNS(SVG_NS, tag), attrs), children);
+    }
+
+    function codicon(name) {
+      return h("span", { class: "codicon codicon-" + name, "aria-hidden": "true" });
+    }
+
+    /** Renders `markdown code spans` from host messages as <code>, everything else as text. */
+    function richText(content) {
+      const fragment = document.createDocumentFragment();
+      String(content)
+        .split("`")
+        .forEach((part, index) => {
+          if (part) {
+            fragment.appendChild(index % 2 === 1 ? h("code", null, part) : document.createTextNode(part));
+          }
+        });
+      return fragment;
+    }
+
+    function plain(content) {
+      return String(content || "").replace(/`/g, "");
+    }
+
+    // ---------- state vocabulary ----------
 
     /** A row's playthrough state when one is running, else its static state. */
     function displayState(entry) {
       return entry.run || entry.state;
     }
 
-    function stateIcon(row, x, y) {
-      var group = svgEl("g");
-      var shown = displayState(row);
-      group.appendChild(svgEl("circle", { class: "state-" + shown, cx: x, cy: y, r: ICON_SIZE }));
-
-      if (shown === "failure") {
-        // A cross, drawn to the same weight as the check so the two read as a pair.
-        group.appendChild(
-          svgEl("path", {
-            class: "state-glyph",
-            fill: "none",
-            stroke: "var(--vscode-editor-background, #fff)",
-            "stroke-width": 1.8,
-            "stroke-linecap": "round",
-            d:
-              "M " + (x - 3) + " " + (y - 3) + " L " + (x + 3) + " " + (y + 3) +
-              " M " + (x + 3) + " " + (y - 3) + " L " + (x - 3) + " " + (y + 3),
-          }),
-        );
-        return group;
-      }
-
-      if (shown === "current") {
-        // A filled centre inside the ring: the "you are here" marker.
-        group.appendChild(svgEl("circle", { class: "state-current-dot", cx: x, cy: y, r: 3.5 }));
-        return group;
-      }
-
-      if (shown === "run" || shown === "success") {
-        // A check mark, drawn rather than typed so it lines up at any font size.
-        group.appendChild(
-          svgEl("path", {
-            class: "state-glyph",
-            fill: "none",
-            stroke: "var(--vscode-editor-background, #fff)",
-            "stroke-width": 1.8,
-            "stroke-linecap": "round",
-            "stroke-linejoin": "round",
-            d:
-              "M " + (x - 3.6) + " " + y + " L " + (x - 1) + " " + (y + 2.6) +
-              " L " + (x + 3.8) + " " + (y - 2.6),
-          }),
-        );
-      } else if (shown === "unknown") {
-        var glyph = text("?", { x: x, y: y + 3.2 }, "state-glyph outline");
-        glyph.setAttribute("text-anchor", "middle");
-        group.appendChild(glyph);
-      }
-      return group;
-    }
-
-    var STATE_WORDS = {
+    const STATE_WORDS = {
       pending: "not reached yet",
       current: "waiting for you to say what happened",
       success: "succeeded",
@@ -1076,16 +1340,496 @@
       unknown: "may or may not run",
     };
 
-    /** What a screen reader announces for a row. */
+    const TALLY_WORDS = {
+      run: "would run",
+      skipped: "skipped",
+      unknown: "undecided",
+      success: "succeeded",
+      failure: "failed",
+      current: "in progress",
+      pending: "not reached",
+    };
+
+    /**
+     * Draws the one icon a state has everywhere: on a row, beside a step, in the
+     * inspector and in the status bar. Colour is never the only signal — every
+     * state also has its own shape.
+     */
+    function drawStateIcon(container, shown, cx, cy, r) {
+      const k = r / 8;
+      if (shown === "run" || shown === "success") {
+        container.appendChild(s("circle", { class: "icon-disc state-" + shown, cx, cy, r }));
+        container.appendChild(
+          s("path", {
+            class: "icon-cut",
+            d: `M ${cx - 3.6 * k} ${cy} L ${cx - 1 * k} ${cy + 2.6 * k} L ${cx + 3.8 * k} ${cy - 2.6 * k}`,
+          }),
+        );
+      } else if (shown === "failure") {
+        container.appendChild(s("circle", { class: "icon-disc state-failure", cx, cy, r }));
+        const d = 3 * k;
+        container.appendChild(
+          s("path", {
+            class: "icon-cut",
+            d: `M ${cx - d} ${cy - d} L ${cx + d} ${cy + d} M ${cx + d} ${cy - d} L ${cx - d} ${cy + d}`,
+          }),
+        );
+      } else if (shown === "skipped") {
+        const ring = r - 0.75;
+        container.appendChild(s("circle", { class: "icon-ring state-skipped", cx, cy, r: ring }));
+        const d = ring * 0.7;
+        container.appendChild(
+          s("line", { class: "icon-slash", x1: cx - d, y1: cy + d, x2: cx + d, y2: cy - d }),
+        );
+      } else if (shown === "unknown") {
+        container.appendChild(s("circle", { class: "icon-ring state-unknown", cx, cy, r: r - 0.75 }));
+        container.appendChild(
+          s("text", { class: "icon-glyph", x: cx, y: cy + 0.5, "font-size": 10 * k }, "?"),
+        );
+      } else if (shown === "current") {
+        container.appendChild(s("circle", { class: "icon-pulse", cx, cy, r: r - 1 }));
+        container.appendChild(s("circle", { class: "icon-ring state-current", cx, cy, r: r - 1 }));
+        container.appendChild(s("circle", { class: "icon-dot", cx, cy, r: 3.2 * k }));
+      } else {
+        container.appendChild(s("circle", { class: "icon-ring state-pending", cx, cy, r: r - 0.75 }));
+      }
+      return container;
+    }
+
+    /** The state icon as a standalone inline SVG, for HTML surroundings. */
+    function stateIcon(shown, size) {
+      const r = size / 2;
+      const svg = s("svg", {
+        class: "state-icon",
+        width: size,
+        height: size,
+        viewBox: `0 0 ${size} ${size}`,
+        "aria-hidden": "true",
+      });
+      return drawStateIcon(svg, shown, r, r, r - 0.5);
+    }
+
+    // ---------- header ----------
+
+    function renderHeader(header) {
+      titleEl.textContent = header.title;
+      titleEl.title = header.fileName;
+      fileEl.textContent = header.title === header.fileName ? "" : header.fileName;
+
+      clear(triggersEl);
+      triggersEl.hidden = header.triggers.length === 0;
+      if (!header.triggers.length) {
+        return;
+      }
+      triggersEl.appendChild(h("span", { class: "label" }, "on:"));
+      for (const trigger of header.triggers) {
+        const chip = h(
+          "button",
+          {
+            type: "button",
+            class: "chip" + (trigger.selected ? " selected" : ""),
+            role: "radio",
+            "aria-checked": trigger.selected ? "true" : "false",
+            title: [`Simulate a ${trigger.event} event`, ...trigger.details].join("\n"),
+          },
+          trigger.event,
+        );
+        chip.addEventListener("click", () => {
+          post({ type: "setEvent", value: trigger.event });
+        });
+        triggersEl.appendChild(chip);
+      }
+    }
+
+    function field(name, attrs) {
+      return h("label", Object.assign({ class: "field" }, attrs), h("span", { class: "name" }, name));
+    }
+
+    /** Pull request filters match the base branch, which is what the ref field holds. */
+    function refLabel(event) {
+      return event && event.indexOf("pull_request") === 0 ? "base" : "ref";
+    }
+
+    function renderSimulation(simulation) {
+      clear(simulationEl);
+      if (!simulation) {
+        simulationEl.hidden = true;
+        return;
+      }
+
+      if (simulation.ref) {
+        const refField = field(refLabel(simulation.event), {
+          title:
+            refLabel(simulation.event) === "base"
+              ? "The branch the pull request targets. Branch filters match against it."
+              : "The ref being pushed. Branch and tag filters match against it.",
+        });
+        // Editable rather than a fixed list: typing a ref the filters reject is
+        // how you find out the workflow would not fire at all.
+        const refInput = h("input", {
+          type: "text",
+          class: "control ref",
+          list: "ref-choices",
+          spellcheck: "false",
+          "aria-label": refLabel(simulation.event),
+        });
+        refInput.value = simulation.ref;
+        refInput.addEventListener("change", () => {
+          post({ type: "setRef", value: refInput.value });
+        });
+        const list = h("datalist", { id: "ref-choices" });
+        for (const choice of simulation.refChoices || []) {
+          const option = h("option", null, choice.label);
+          option.value = choice.ref;
+          list.appendChild(option);
+        }
+        refField.appendChild(refInput);
+        refField.appendChild(list);
+        simulationEl.appendChild(refField);
+      }
+
+      const inputs = simulation.inputs || [];
+      if (inputs.length) {
+        const group = h("div", { class: "group inputs", role: "group", "aria-label": "Inputs" });
+        for (const input of inputs) {
+          group.appendChild(inputControl(input, simulation.values[input.name]));
+        }
+        simulationEl.appendChild(group);
+      }
+
+      // Values the preview cannot work out on its own. Filling one in decides
+      // every condition that depends on it.
+      const pinnable = simulation.pinnable || [];
+      if (pinnable.length) {
+        const pinned = simulation.pinned || {};
+        const group = h(
+          "div",
+          { class: "group pins", role: "group", "aria-label": "Values the preview cannot know" },
+          h(
+            "span",
+            {
+              class: "group-label",
+              title: "A static preview cannot know these. Set one to decide every condition that uses it.",
+            },
+            codicon("question"),
+            "Unknown",
+          ),
+        );
+        for (const path of pinnable) {
+          group.appendChild(pinControl(path, pinned[path]));
+        }
+        simulationEl.appendChild(group);
+      }
+
+      simulationEl.hidden = simulationEl.childNodes.length === 0;
+    }
+
+    function inputControl(input, value) {
+      const wrapper = field(input.name, input.description ? { title: input.description } : null);
+      let control;
+
+      if (input.type === "boolean") {
+        control = h("input", { type: "checkbox", class: "control" });
+        control.checked = value === true || value === "true";
+        control.addEventListener("change", () => {
+          post({ type: "setInput", name: input.name, input: control.checked });
+        });
+      } else if (input.type === "choice" && input.options && input.options.length) {
+        control = h("select", { class: "control" });
+        for (const choice of input.options) {
+          const option = h("option", null, choice);
+          option.value = choice;
+          option.selected = choice === String(value);
+          control.appendChild(option);
+        }
+        control.addEventListener("change", () => {
+          post({ type: "setInput", name: input.name, input: control.value });
+        });
+      } else {
+        control = h("input", {
+          type: input.type === "number" ? "number" : "text",
+          class: "control",
+          spellcheck: "false",
+        });
+        control.value = value == null ? "" : String(value);
+        control.addEventListener("change", () => {
+          post({ type: "setInput", name: input.name, input: control.value });
+        });
+      }
+
+      wrapper.appendChild(control);
+      return wrapper;
+    }
+
+    function pinControl(path, value) {
+      const wrapper = field(path);
+      wrapper.className = "field pin";
+      const control = h("input", {
+        type: "text",
+        class: "control",
+        placeholder: "unknown",
+        spellcheck: "false",
+      });
+      control.value = value == null ? "" : String(value);
+      control.addEventListener("change", () => {
+        post({ type: "setPin", name: path, input: control.value });
+      });
+      wrapper.appendChild(control);
+
+      if (value != null) {
+        const clearButton = h(
+          "button",
+          { type: "button", class: "tool clear-pin", title: "Forget this value", "aria-label": "Forget " + path },
+          codicon("close"),
+        );
+        clearButton.addEventListener("click", (event) => {
+          event.preventDefault();
+          post({ type: "setPin", name: path });
+        });
+        wrapper.appendChild(clearButton);
+      }
+      return wrapper;
+    }
+
+    // ---------- playthrough bar ----------
+
+    /** Reads whatever the output fields currently hold. */
+    function collectOutputs() {
+      const outputs = {};
+      for (const control of playthroughEl.querySelectorAll("input[data-output]")) {
+        const name = control.getAttribute("data-output");
+        if (name && control.value !== "") {
+          outputs[name] = control.value;
+        }
+      }
+      return outputs;
+    }
+
+    function decide(outcome) {
+      // Whatever is in the output fields belongs to this decision.
+      post({ type: "decideStep", outcome, outputs: collectOutputs() });
+    }
+
+    function barButton(label, id, icon, onClick, className) {
+      const button = h(
+        "button",
+        { type: "button", class: className || "tool", id },
+        icon ? codicon(icon) : null,
+        h("span", null, label),
+      );
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function renderPlaythrough(playthrough) {
+      clear(playthroughEl);
+      playthroughEl.hidden = !playthrough;
+      if (!playthrough) {
+        return;
+      }
+
+      let where;
+      if (playthrough.done) {
+        where = "Run complete";
+      } else if (playthrough.cursor) {
+        where = playthrough.cursor.jobName + " › " + playthrough.cursor.stepName;
+      } else {
+        where = "Nothing to run";
+      }
+      playthroughEl.appendChild(
+        h(
+          "span",
+          { class: "where" },
+          stateIcon(playthrough.done ? "success" : "current", 14),
+          h("span", { class: "position", title: where }, where),
+        ),
+      );
+
+      const { decided, total } = playthrough.progress;
+      const percent = total ? Math.round((decided / total) * 100) : 100;
+      playthroughEl.appendChild(
+        h(
+          "span",
+          { class: "progress" },
+          h(
+            "span",
+            { class: "meter", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total, "aria-valuenow": decided },
+            h("span", { style: "width:" + percent + "%" }),
+          ),
+          decided + " of " + total + " steps",
+        ),
+      );
+
+      if (playthrough.cursor) {
+        const decision = h("span", { class: "decision", role: "group", "aria-label": "What happened to this step" });
+        const succeeded = h(
+          "button",
+          { type: "button", class: "button secondary outcome", id: "outcome-success", title: "Step succeeded (S)" },
+          h("span", { class: "codicon codicon-pass icon-success", "aria-hidden": "true" }),
+          "Succeeded",
+        );
+        succeeded.addEventListener("click", () => decide("success"));
+        const failed = h(
+          "button",
+          { type: "button", class: "button secondary outcome", id: "outcome-failure", title: "Step failed (F)" },
+          h("span", { class: "codicon codicon-error icon-failure", "aria-hidden": "true" }),
+          "Failed",
+        );
+        failed.addEventListener("click", () => decide("failure"));
+        decision.appendChild(succeeded);
+        decision.appendChild(failed);
+        playthroughEl.appendChild(decision);
+        playthroughEl.appendChild(outputFields(playthrough.cursor.outputNames));
+        playthroughEl.appendChild(
+          barButton("Skip rest of job", "skip-job", "debug-step-over", () => {
+            post({ type: "skipJobRest" });
+          }),
+        );
+      }
+
+      playthroughEl.appendChild(h("span", { class: "spacer" }));
+      const walk = h("span", { class: "walk-controls", role: "group", "aria-label": "Playthrough" });
+      if (playthrough.progress.decided > 0) {
+        walk.appendChild(
+          barButton("Undo", "undo-step", "discard", () => {
+            post({ type: "undoStep" });
+          }),
+        );
+      }
+      walk.appendChild(
+        barButton("Restart", "restart-playthrough", "debug-restart", () => {
+          post({ type: "restartPlaythrough" });
+        }),
+      );
+      walk.appendChild(
+        barButton("Stop", "stop-playthrough", "debug-stop", () => {
+          post({ type: "stopPlaythrough" });
+        }),
+      );
+      playthroughEl.appendChild(walk);
+    }
+
+    function outputFields(names) {
+      const wrapper = h("span", { class: "outputs" });
+      for (const name of names || []) {
+        const entry = field(name, { title: "Output this step writes to $GITHUB_OUTPUT" });
+        entry.appendChild(
+          h("input", { type: "text", class: "control", "data-output": name, spellcheck: "false", placeholder: "value" }),
+        );
+        wrapper.appendChild(entry);
+      }
+      return wrapper;
+    }
+
+    // ---------- banner ----------
+
+    const BANNER_LIMIT = 2;
+
+    function renderBanner(warnings) {
+      clear(bannerEl);
+      bannerEl.hidden = !warnings || warnings.length === 0;
+      if (bannerEl.hidden) {
+        return;
+      }
+      const shown = state.bannerExpanded ? warnings : warnings.slice(0, BANNER_LIMIT);
+      for (const warning of shown) {
+        bannerEl.appendChild(h("div", { class: "banner-row" }, codicon("warning"), h("span", null, richText(warning))));
+      }
+      if (warnings.length > BANNER_LIMIT) {
+        const toggle = h(
+          "button",
+          { type: "button", class: "link", id: "banner-toggle" },
+          state.bannerExpanded ? "Show fewer" : `Show ${warnings.length - BANNER_LIMIT} more`,
+        );
+        toggle.addEventListener("click", () => {
+          state.bannerExpanded = !state.bannerExpanded;
+          renderBanner(warnings);
+        });
+        bannerEl.appendChild(toggle);
+      }
+    }
+
+    // ---------- graph ----------
+
+    /** Orthogonal path with rounded corners through the route's turning points. */
+    function edgePath(points) {
+      if (!points.length) {
+        return "";
+      }
+      const radiusLimit = state.metrics.elbowRadius;
+      let d = `M ${points[0].x} ${points[0].y}`;
+      for (let i = 1; i < points.length - 1; i++) {
+        const previous = points[i - 1];
+        const corner = points[i];
+        const next = points[i + 1];
+        const inLength = Math.hypot(corner.x - previous.x, corner.y - previous.y);
+        const outLength = Math.hypot(next.x - corner.x, next.y - corner.y);
+        const radius = Math.min(radiusLimit, inLength / 2, outLength / 2);
+        if (radius <= 0.5) {
+          d += ` L ${corner.x} ${corner.y}`;
+          continue;
+        }
+        const enterX = corner.x - ((corner.x - previous.x) / inLength) * radius;
+        const enterY = corner.y - ((corner.y - previous.y) / inLength) * radius;
+        const exitX = corner.x + ((next.x - corner.x) / outLength) * radius;
+        const exitY = corner.y + ((next.y - corner.y) / outLength) * radius;
+        d += ` L ${enterX} ${enterY} Q ${corner.x} ${corner.y} ${exitX} ${exitY}`;
+      }
+      const last = points[points.length - 1];
+      return d + ` L ${last.x} ${last.y}`;
+    }
+
+    /**
+     * Marks a text element for truncation to `maxWidth`. The real measuring pass
+     * runs once the scene is in the document, since only rendered text has a length.
+     */
+    function fitted(element, content, maxWidth) {
+      element.textContent = content;
+      element.setAttribute("data-full", content);
+      element.setAttribute("data-max-width", String(Math.max(maxWidth, 0)));
+      return element;
+    }
+
+    function truncateAll(root) {
+      for (const element of root.querySelectorAll("[data-max-width]")) {
+        const full = element.getAttribute("data-full") || "";
+        const maxWidth = Number(element.getAttribute("data-max-width"));
+        element.textContent = full;
+        const measure =
+          typeof element.getComputedTextLength === "function"
+            ? () => element.getComputedTextLength()
+            : null;
+        let width = measure ? measure() : 0;
+        if (!measure || !(width > 0)) {
+          // No layout engine (JSDOM) or not rendered: fall back to an estimate.
+          const maxChars = Math.max(4, Math.floor(maxWidth / 6.6));
+          if (full.length > maxChars) {
+            element.textContent = full.slice(0, maxChars - 1) + "…";
+          }
+          continue;
+        }
+        if (width <= maxWidth) {
+          continue;
+        }
+        // Start from a proportional guess, then trim until it fits.
+        let chars = Math.max(1, Math.floor((full.length * maxWidth) / width));
+        element.textContent = full.slice(0, chars) + "…";
+        while (chars > 1 && measure() > maxWidth) {
+          chars -= 1;
+          element.textContent = full.slice(0, chars).trimEnd() + "…";
+        }
+      }
+    }
+
     function rowLabel(row) {
-      var shown = displayState(row);
-      var parts = [row.title, STATE_WORDS[shown] || shown];
+      const shown = displayState(row);
+      const parts = [row.title, STATE_WORDS[shown] || shown];
       if (row.meta) {
         parts.push(row.meta);
       }
-      var why = row.runReason || row.reason;
+      const why = row.runReason || row.reason;
       if (why) {
-        parts.push(why.replace(/`/g, ""));
+        parts.push(plain(why));
       }
       if (row.expandable) {
         parts.push(row.expanded ? "expanded" : "collapsed");
@@ -1093,32 +1837,828 @@
       return parts.join(", ");
     }
 
-    /** Every row currently drawn, in visual order: left to right, then top down. */
+    function chevron(row, x, y) {
+      const size = CHEVRON_SIZE;
+      const group = s(
+        "g",
+        { class: "chevron", "data-action": "toggle" },
+        s("title", null, row.expanded ? "Hide steps" : "Show steps"),
+      );
+      group.appendChild(
+        s("rect", { class: "chevron-hit", x: x - size / 2, y: y - size / 2, width: size, height: size, rx: 4 }),
+      );
+      const d = row.expanded
+        ? `M ${x - 4} ${y + 2} L ${x} ${y - 2} L ${x + 4} ${y + 2}`
+        : `M ${x - 4} ${y - 2} L ${x} ${y + 2} L ${x + 4} ${y - 2}`;
+      group.appendChild(s("path", { class: "chevron-mark", d }));
+      return group;
+    }
+
+    function renderRow(row, card) {
+      const m = state.metrics;
+      const shown = displayState(row);
+      const group = s("g", {
+        transform: `translate(0,${row.offsetY})`,
+        class: "row " + shown + (row.id === state.selected ? " selected" : ""),
+        "data-row-id": row.id,
+        "data-node-id": row.id,
+        // Focusable and labelled so the graph is usable without a mouse and
+        // legible to a screen reader, which sees only an undifferentiated SVG.
+        role: "listitem",
+        tabindex: 0,
+        "aria-label": rowLabel(row),
+      });
+      if (row.expandable) {
+        group.setAttribute("aria-expanded", row.expanded ? "true" : "false");
+      }
+      // The tooltip comes first, as SVG expects of an element's own <title>.
+      const why = row.runReason || row.reason;
+      group.appendChild(s("title", null, why ? row.title + " — " + plain(why) : row.title));
+
+      group.appendChild(
+        s("rect", {
+          class: "row-hit",
+          x: ROW_INSET,
+          y: 1,
+          width: card.width - ROW_INSET * 2,
+          height: row.height - 2,
+          rx: 5,
+        }),
+      );
+      group.appendChild(
+        s("rect", { class: "row-marker", x: ROW_INSET, y: 8, width: 3, height: m.rowHeight - 16, rx: 1.5 }),
+      );
+
+      const centerY = m.rowHeight / 2;
+      drawStateIcon(group, shown, ICON_X, centerY, 8);
+
+      const rightEdge = card.width - 10 - (row.expandable ? CHEVRON_SIZE : 0);
+      const metaWidth = row.meta ? Math.min(row.meta.length * 6.8 + 4, 112) : 0;
+      const titleWidth = rightEdge - TITLE_X - (metaWidth ? metaWidth + 10 : 0);
+      group.appendChild(fitted(s("text", { class: "row-title", x: TITLE_X, y: centerY + 4.5 }), row.title, titleWidth));
+
+      if (row.meta) {
+        group.appendChild(
+          fitted(s("text", { class: "row-meta", x: rightEdge, y: centerY + 4, "text-anchor": "end" }), row.meta, metaWidth),
+        );
+      }
+      if (row.expandable) {
+        group.appendChild(chevron(row, card.width - 10 - CHEVRON_SIZE / 2, centerY));
+      }
+
+      if (row.expanded) {
+        let y = m.rowHeight;
+        if (row.condition) {
+          group.appendChild(
+            fitted(
+              s("text", { class: "row-condition", x: TITLE_X, y: y + m.conditionHeight / 2 }),
+              "if: " + row.condition,
+              card.width - TITLE_X - 12,
+            ),
+          );
+          y += m.conditionHeight;
+        }
+        row.steps.forEach((step, index) => {
+          const stepState = displayState(step);
+          const line = s(
+            "g",
+            {
+              class: "step-line step-" + stepState,
+              "data-step-index": index,
+              transform: `translate(0,${y})`,
+            },
+            s("title", null, step.name + (step.condition ? "\nif: " + step.condition : "")),
+          );
+          line.appendChild(
+            s("rect", {
+              class: "step-hit",
+              x: TITLE_X - 6,
+              y: 1,
+              width: card.width - TITLE_X - 4,
+              height: m.stepHeight - 2,
+              rx: 4,
+            }),
+          );
+          drawStateIcon(line, stepState, STEP_ICON_X, m.stepHeight / 2, 5);
+          line.appendChild(
+            fitted(
+              s("text", { class: "row-step step-" + stepState, x: STEP_TEXT_X, y: m.stepHeight / 2 + 4 }),
+              step.name,
+              card.width - STEP_TEXT_X - 14,
+            ),
+          );
+          group.appendChild(line);
+          y += m.stepHeight;
+        });
+      }
+
+      return group;
+    }
+
+    function renderCard(card) {
+      const m = state.metrics;
+      const group = s("g", {
+        transform: `translate(${card.x},${card.y})`,
+        class: "card " + card.kind,
+        "data-card-id": card.id,
+        role: "list",
+        "aria-label": card.tab || null,
+      });
+
+      if (card.tab) {
+        // GitHub draws the matrix label as a tab attached to the top of the card.
+        const tabWidth = Math.min(card.tab.length * 6.8 + 22, card.width - 20);
+        const top = -m.tabHeight;
+        group.appendChild(
+          s("path", {
+            class: "card-tab",
+            d:
+              `M 8 1 L 8 ${top + 6} Q 8 ${top} 14 ${top} L ${tabWidth - 6} ${top}` +
+              ` Q ${tabWidth} ${top} ${tabWidth} ${top + 6} L ${tabWidth} 1 Z`,
+          }),
+        );
+        group.appendChild(
+          fitted(s("text", { class: "card-tab-text", x: 18, y: top + m.tabHeight / 2 + 4 }), card.tab, tabWidth - 24),
+        );
+      }
+
+      group.appendChild(s("rect", { class: "card-box", width: card.width, height: card.height, rx: 8, ry: 8 }));
+      for (const row of card.rows) {
+        group.appendChild(renderRow(row, card));
+      }
+      return group;
+    }
+
+    /**
+     * Jobs upstream and downstream of the selection, from the `needs:` the rows
+     * carry. Used to light up the selection's dependency path.
+     */
+    function lineageOf(row) {
+      const byJob = new Map();
+      for (const entry of allRows()) {
+        if (entry.details) {
+          byJob.set(entry.jobId, entry.details);
+        }
+      }
+      const walk = (start, key) => {
+        const seen = new Set();
+        const queue = [start];
+        while (queue.length) {
+          const details = byJob.get(queue.shift());
+          for (const next of (details && details[key]) || []) {
+            if (!seen.has(next)) {
+              seen.add(next);
+              queue.push(next);
+            }
+          }
+        }
+        return seen;
+      };
+      return { up: walk(row.jobId, "needs"), down: walk(row.jobId, "neededBy") };
+    }
+
+    /** Card-to-card edges that carry part of the selected job's dependency chain. */
+    function edgesOnPath() {
+      const selected = state.selected ? findRow(state.selected) : null;
+      if (!selected) {
+        return new Set();
+      }
+      const { up, down } = lineageOf(selected);
+      const cardOf = new Map();
+      for (const card of state.graph.cards) {
+        for (const row of card.rows) {
+          cardOf.set(row.jobId, card.id);
+        }
+      }
+      const onPath = new Set();
+      for (const row of allRows()) {
+        const job = row.jobId;
+        for (const need of (row.details && row.details.needs) || []) {
+          const upstream = (job === selected.jobId || up.has(job)) && up.has(need);
+          const downstream = (need === selected.jobId || down.has(need)) && down.has(job);
+          if (upstream || downstream) {
+            onPath.add(cardOf.get(need) + " " + cardOf.get(job));
+          }
+        }
+      }
+      return onPath;
+    }
+
+    /**
+     * Lines go under the cards and their dots over them, so a dot sits whole on
+     * the card's border. Lit edges are drawn last, on top of any they cross.
+     */
+    function renderEdges() {
+      const m = state.metrics;
+      const onPath = edgesOnPath();
+      const lines = s("g", { class: "edges" });
+      const dots = s("g", { class: "edge-dots" });
+      const ordered = state.graph.edges
+        .map((edge) => ({ edge, lit: onPath.has(edge.from + " " + edge.to) }))
+        .sort((a, b) => Number(a.lit) - Number(b.lit));
+      for (const { edge, lit } of ordered) {
+        const modifiers = (edge.inactive ? " inactive" : "") + (edge.broken ? " broken" : "") + (lit ? " on-path" : "");
+        lines.appendChild(s("path", { class: "edge" + modifiers, d: edgePath(edge.points) }));
+        for (const point of [edge.from_point, edge.to_point]) {
+          dots.appendChild(s("circle", { class: "edge-dot" + modifiers, cx: point.x, cy: point.y, r: m.dotRadius }));
+        }
+      }
+      return { lines, dots };
+    }
+
+    function renderScene() {
+      clear(scene);
+      const graph = state.graph;
+      if (!graph || graph.error || !graph.cards.length) {
+        return;
+      }
+      const edges = renderEdges();
+      scene.appendChild(edges.lines);
+      const cardLayer = s("g", { class: "cards" });
+      for (const card of graph.cards) {
+        cardLayer.appendChild(renderCard(card));
+      }
+      scene.appendChild(cardLayer);
+      scene.appendChild(edges.dots);
+      truncateAll(scene);
+    }
+
+    /**
+     * Shows a new selection without rebuilding the cards, so the focused row, the
+     * hover and a screen reader's place all survive it. Only the edges, whose
+     * highlight follows the selection, are redrawn.
+     */
+    function applySelection() {
+      for (const rowEl of focusableRows()) {
+        rowEl.classList.toggle("selected", rowEl.getAttribute("data-row-id") === state.selected);
+      }
+      const lines = scene.querySelector(".edges");
+      const dots = scene.querySelector(".edge-dots");
+      if (lines && dots) {
+        const edges = renderEdges();
+        scene.replaceChild(edges.lines, lines);
+        scene.replaceChild(edges.dots, dots);
+      }
+    }
+
+    function render(message) {
+      const graph = message.graph;
+      const directionChanged = state.graph != null && state.direction !== graph.direction;
+      state.graph = graph;
+      state.simulation = message.simulation || null;
+      state.playthrough = message.playthrough || null;
+      state.expanded = message.expanded || [];
+      state.metrics = graph.metrics || FALLBACK_METRICS;
+      state.direction = graph.direction;
+
+      // Keep the inspector on the same job across re-renders; a matrix row that
+      // collapsed back into one row is still the same job.
+      if (state.selected && !findRow(state.selected)) {
+        const previous = state.selectedJob;
+        const sameJob = previous ? allRows().find((row) => row.jobId === previous) : null;
+        state.selected = sameJob ? sameJob.id : null;
+      }
+
+      renderHeader(graph.header);
+      // While a walk is running the simulation controls would only invite changes
+      // that invalidate it, so the bar takes their place.
+      controlsEl.hidden = state.playthrough != null;
+      renderSimulation(state.playthrough ? null : state.simulation);
+      renderPlaythrough(state.playthrough);
+      renderBanner(graph.warnings);
+      renderToolbar();
+
+      if (graph.error) {
+        clear(scene);
+        showMessage(graph.error, true);
+      } else if (!graph.cards.length) {
+        clear(scene);
+        showMessage("This workflow has no jobs yet. Add one under `jobs:` and it appears here.", false);
+      } else {
+        hideMessage();
+        renderScene();
+      }
+      renderInspector();
+      renderSummary();
+      if (directionChanged) {
+        fitToView(READABLE_SCALE);
+      }
+    }
+
+    function renderToolbar() {
+      // While a walk is running its own bar holds Stop, so one button is enough.
+      $("btn-play").hidden = state.playthrough != null;
+      $("toolbar-divider").hidden = state.playthrough != null;
+
+      const anyExpanded = state.expanded.length > 0;
+      const stepsButton = $("btn-steps");
+      clear(stepsButton);
+      stepsButton.appendChild(codicon(anyExpanded ? "collapse-all" : "expand-all"));
+      stepsButton.title = anyExpanded ? "Hide every job's steps" : "Show every job's steps";
+
+      const directionButton = $("btn-direction");
+      clear(directionButton);
+      directionButton.appendChild(codicon(state.direction === "LR" ? "arrow-right" : "arrow-down"));
+      directionButton.title = state.direction === "LR" ? "Lay out top to bottom" : "Lay out left to right";
+    }
+
+    function renderSummary() {
+      clear(summaryEl);
+      const rows = state.graph && !state.graph.error ? allRows().filter((row) => row.details) : [];
+      if (!rows.length) {
+        return;
+      }
+      const counts = {};
+      for (const row of rows) {
+        const shown = displayState(row);
+        counts[shown] = (counts[shown] || 0) + 1;
+      }
+      summaryEl.appendChild(h("span", { class: "tally" }, rows.length === 1 ? "1 job" : rows.length + " jobs"));
+      const order = state.playthrough
+        ? ["success", "failure", "current", "skipped", "unknown", "pending"]
+        : ["run", "skipped", "unknown"];
+      for (const key of order) {
+        if (counts[key]) {
+          summaryEl.appendChild(h("span", { class: "tally" }, stateIcon(key, 12), counts[key] + " " + TALLY_WORDS[key]));
+        }
+      }
+    }
+
+    // ---------- inspector ----------
+
+    function allRows() {
+      const rows = [];
+      for (const card of (state.graph && state.graph.cards) || []) {
+        for (const row of card.rows) {
+          rows.push(row);
+        }
+      }
+      return rows;
+    }
+
+    function findRow(rowId) {
+      return allRows().find((row) => row.id === rowId) || null;
+    }
+
+    function rowForJob(jobId) {
+      return allRows().find((row) => row.jobId === jobId) || null;
+    }
+
+    function select(rowId) {
+      state.selected = rowId;
+      const row = rowId ? findRow(rowId) : null;
+      state.selectedJob = row ? row.jobId : null;
+      applySelection();
+      renderInspector();
+    }
+
+    function revealRow(row) {
+      if (row && row.range) {
+        post({ type: "revealSource", offset: row.range.start, nodeId: row.id });
+      }
+    }
+
+    function jobLinks(jobIds) {
+      const wrapper = h("span", { class: "job-links" });
+      for (const jobId of jobIds) {
+        const target = rowForJob(jobId);
+        if (target && target.details) {
+          const link = h("button", { type: "button", class: "link code" }, jobId);
+          link.addEventListener("click", () => {
+            select(target.id);
+            revealRow(target);
+            focusRow(target.id);
+          });
+          wrapper.appendChild(link);
+        } else {
+          wrapper.appendChild(h("code", { title: "Not defined in this workflow" }, jobId));
+        }
+      }
+      return wrapper;
+    }
+
+    function prop(list, term, ...value) {
+      list.appendChild(h("dt", null, term));
+      list.appendChild(h("dd", null, ...value));
+    }
+
+    function isLocalReference(uses) {
+      return typeof uses === "string" && uses.indexOf("./") === 0;
+    }
+
+    function openButton(uses, label) {
+      const button = h("button", { type: "button", class: "link", title: "Open " + uses }, label);
+      button.addEventListener("click", () => {
+        post({ type: "openReference", value: uses });
+      });
+      return button;
+    }
+
+    function renderInspector() {
+      clear(inspectorEl);
+      const row = state.selected ? findRow(state.selected) : null;
+      inspectorEl.hidden = !row;
+      if (!row) {
+        return;
+      }
+      const details = row.details;
+      const shown = displayState(row);
+
+      const close = h("button", { type: "button", class: "tool", id: "inspector-close", title: "Close (Esc)" }, codicon("close"));
+      close.addEventListener("click", () => {
+        const id = state.selected;
+        select(null);
+        focusRow(id);
+      });
+      inspectorEl.appendChild(
+        h(
+          "div",
+          { class: "inspector-head" },
+          stateIcon(shown, 16),
+          h(
+            "div",
+            { class: "inspector-title" },
+            h("h2", { id: "inspector-name" }, row.title),
+            // The id is what `needs:` and the YAML use, so show it whenever the title hides it.
+            row.title === row.jobId ? null : h("code", { class: "job-id" }, row.jobId),
+          ),
+          close,
+        ),
+      );
+
+      const why = row.runReason || row.reason;
+      const status = STATE_WORDS[shown] || shown;
+      inspectorEl.appendChild(
+        h(
+          "p",
+          { class: "inspector-status" },
+          status.charAt(0).toUpperCase() + status.slice(1),
+          why ? ": " : ".",
+          why ? richText(why.replace(/\.$/, "")) : null,
+          why ? "." : null,
+        ),
+      );
+
+      if (details) {
+        const actions = h("div", { class: "inspector-actions" });
+        if (row.range) {
+          const reveal = h("button", { type: "button", class: "button secondary", id: "inspector-reveal" }, codicon("go-to-file"), "Go to YAML");
+          reveal.addEventListener("click", () => revealRow(row));
+          actions.appendChild(reveal);
+        }
+        // A matrix card expands into one row per combination, and back.
+        const card = state.graph.cards.find((entry) => entry.rows.includes(row));
+        if (card && card.kind === "matrix" && card.expandable) {
+          const count = details.matrix && details.matrix.combinations;
+          const label = card.expanded ? "Show as one row" : count ? `Show all ${count} jobs` : "Show every job";
+          const toggle = h("button", { type: "button", class: "button secondary", id: "inspector-matrix" }, codicon(card.expanded ? "collapse-all" : "expand-all"), label);
+          toggle.addEventListener("click", () => {
+            post({ type: "toggleExpand", nodeId: card.id });
+          });
+          actions.appendChild(toggle);
+        }
+        if (!state.playthrough && row.steps.length) {
+          const play = h("button", { type: "button", class: "button secondary", id: "inspector-play" }, codicon("play"), "Play this job");
+          play.addEventListener("click", () => {
+            post({ type: "startPlaythrough", nodeId: row.jobId });
+          });
+          actions.appendChild(play);
+        }
+        inspectorEl.appendChild(actions);
+      }
+
+      const props = h("dl", { class: "props" });
+      if (row.condition) {
+        prop(props, "Condition", h("code", { class: "expression" }, row.condition));
+      }
+      if (details) {
+        if (details.needs.length) {
+          prop(props, "Needs", jobLinks(details.needs));
+        }
+        if (details.neededBy.length) {
+          prop(props, "Needed by", jobLinks(details.neededBy));
+        }
+        if (row.uses) {
+          prop(
+            props,
+            "Calls",
+            h("code", null, row.uses),
+            isLocalReference(row.uses) ? h("span", null, " ", openButton(row.uses, "Open")) : null,
+          );
+        }
+        if (details.runsOn) {
+          prop(props, "Runs on", h("code", null, details.runsOn));
+        }
+        if (details.environment) {
+          prop(
+            props,
+            "Environment",
+            details.environment,
+            details.environmentUrl ? h("div", { class: "note" }, h("code", null, details.environmentUrl)) : null,
+          );
+        }
+        if (details.matrix) {
+          const axes = details.matrix.axes.map((axis) =>
+            h("div", { class: "matrix-axis" }, h("code", null, axis.key), ": ", axis.values.join(", ")),
+          );
+          const count =
+            details.matrix.combinations != null
+              ? details.matrix.combinations + " combinations"
+              : "Combinations depend on include, exclude or expressions";
+          prop(props, "Matrix", ...axes, h("div", { class: "note" }, count));
+        }
+        if (details.outputs.length) {
+          prop(props, "Outputs", h("code", null, details.outputs.join(", ")));
+        }
+        if (details.timeoutMinutes) {
+          prop(
+            props,
+            "Timeout",
+            /^\d+$/.test(details.timeoutMinutes)
+              ? details.timeoutMinutes + (details.timeoutMinutes === "1" ? " minute" : " minutes")
+              : h("code", null, details.timeoutMinutes),
+          );
+        }
+        if (details.concurrency) {
+          prop(
+            props,
+            "Concurrency",
+            h("code", null, details.concurrency.group),
+            details.concurrency.cancelInProgress ? h("div", { class: "note" }, "Cancels the run in progress") : null,
+          );
+        }
+        if (details.permissions) {
+          prop(props, "Permissions", h("code", null, details.permissions));
+        }
+      }
+      if (props.childNodes.length) {
+        inspectorEl.appendChild(props);
+      }
+
+      if (row.steps.length) {
+        inspectorEl.appendChild(
+          h("h3", { class: "steps-heading" }, "Steps", h("span", { class: "count" }, String(row.steps.length))),
+        );
+        const list = h("ol", { class: "step-list" });
+        row.steps.forEach((step, index) => {
+          const stepState = displayState(step);
+          let meta = null;
+          if (step.condition) {
+            meta = h("code", { class: "step-meta" }, "if: " + step.condition);
+          } else if (step.uses && step.uses !== step.name) {
+            meta = h("code", { class: "step-meta" }, step.uses);
+          }
+          const item = h(
+            "button",
+            {
+              type: "button",
+              class: "step-item " + stepState,
+              "data-step-index": index,
+              title: step.range ? "Go to this step in the YAML" : null,
+              "aria-label": step.name + ", " + (STATE_WORDS[stepState] || stepState),
+            },
+            stateIcon(stepState, 12),
+            h("span", { class: "step-name" }, step.name),
+            meta,
+          );
+          item.addEventListener("click", () => revealStep(row, index));
+          const entry = h("li", null, item);
+          if (isLocalReference(step.uses)) {
+            entry.appendChild(h("div", { class: "step-meta-actions" }, openButton(step.uses, "Open action")));
+          }
+          list.appendChild(entry);
+        });
+        inspectorEl.appendChild(list);
+      } else if (details && !row.uses) {
+        inspectorEl.appendChild(h("p", { class: "empty-note" }, "This job has no steps."));
+      }
+    }
+
+    function revealStep(row, index) {
+      const step = row.steps[index];
+      if (step && step.range) {
+        post({ type: "revealSource", offset: step.range.start, nodeId: row.id });
+      }
+    }
+
+    // ---------- view ----------
+
+    function applyTransform() {
+      scene.setAttribute("transform", `translate(${state.offsetX},${state.offsetY}) scale(${state.scale})`);
+      const grid = GRID * state.scale;
+      viewport.style.backgroundSize = `${grid}px ${grid}px`;
+      viewport.style.backgroundPosition = `${state.offsetX}px ${state.offsetY}px`;
+      $("btn-zoom-reset").textContent = Math.round(state.scale * 100) + "%";
+    }
+
+    function setScale(next, originX, originY) {
+      const clamped = Math.min(Math.max(next, MIN_SCALE), MAX_SCALE);
+      if (clamped === state.scale) {
+        return;
+      }
+      const rect = viewport.getBoundingClientRect();
+      const px = originX == null ? rect.width / 2 : originX;
+      const py = originY == null ? rect.height / 2 : originY;
+      // Keep the point under the cursor stationary while zooming.
+      const ratio = clamped / state.scale;
+      state.offsetX = px - (px - state.offsetX) * ratio;
+      state.offsetY = py - (py - state.offsetY) * ratio;
+      state.scale = clamped;
+      state.userMoved = true;
+      applyTransform();
+    }
+
+    /** Scales the graph to fit the canvas, no larger than actual size and no smaller than `floor`. */
+    function fitToView(floor) {
+      if (!state.graph || !state.graph.cards.length) {
+        return;
+      }
+      const rect = viewport.getBoundingClientRect();
+      if (!rect.width || !rect.height) {
+        return;
+      }
+      const scaleX = rect.width / Math.max(state.graph.width, 1);
+      const scaleY = rect.height / Math.max(state.graph.height, 1);
+      const lowest = typeof floor === "number" ? floor : MIN_SCALE;
+      state.scale = Math.min(Math.max(Math.min(scaleX, scaleY), lowest), 1);
+      // Anchor top-left the way GitHub does, rather than centring in the panel.
+      // The graph already carries its own margin, so no extra offset is needed.
+      state.offsetX = 0;
+      state.offsetY = 0;
+      state.userMoved = false;
+      applyTransform();
+    }
+
+    function showMessage(content, isError) {
+      clear(messageEl);
+      messageEl.appendChild(h("div", { class: "message-box" }, richText(content)));
+      messageEl.className = isError ? "visible error" : "visible";
+    }
+
+    function hideMessage() {
+      messageEl.className = "";
+    }
+
+    // ---------- export ----------
+
+    const EXPORT_TOKENS = [
+      "--ink",
+      "--muted",
+      "--canvas",
+      "--surface",
+      "--line",
+      "--edge",
+      "--accent",
+      "--state-run",
+      "--state-failure",
+      "--state-unknown",
+      "--state-skipped",
+    ];
+
+    /** Resolves a colour token to a plain rgb() any SVG viewer understands. */
+    function resolveColor(token) {
+      const probe = h("span", { style: `color: var(${token})` });
+      document.body.appendChild(probe);
+      const value = getComputedStyle(probe).color || "";
+      probe.remove();
+      const srgb = /^color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)(?: \/ ([\d.]+))?\)$/.exec(value);
+      if (srgb) {
+        const [r, g, b] = [srgb[1], srgb[2], srgb[3]].map((part) => Math.round(Number(part) * 255));
+        return srgb[4] == null ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${srgb[4]})`;
+      }
+      return value;
+    }
+
+    /** Serialises the current scene into a standalone SVG document for export. */
+    function serializeSvg() {
+      if (!state.graph || !state.graph.cards.length) {
+        return "";
+      }
+      const { width, height } = state.graph;
+      const clone = canvas.cloneNode(true);
+      clone.removeAttribute("id");
+      clone.setAttribute("class", "export");
+      clone.setAttribute("width", String(width));
+      clone.setAttribute("height", String(height));
+      clone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      const clonedScene = clone.querySelector("#scene");
+      if (clonedScene) {
+        clonedScene.removeAttribute("transform");
+      }
+      // A picture of the graph, not of this session's selection and focus.
+      for (const element of clone.querySelectorAll(".selected, .on-path")) {
+        element.classList.remove("selected", "on-path");
+      }
+      for (const element of clone.querySelectorAll("[tabindex]")) {
+        element.removeAttribute("tabindex");
+      }
+
+      const tokens = EXPORT_TOKENS.map((token) => `${token}: ${resolveColor(token)};`).join(" ");
+      const font = getComputedStyle(document.body).fontFamily;
+      const monoProbe = h("code");
+      document.body.appendChild(monoProbe);
+      const mono = getComputedStyle(monoProbe).fontFamily;
+      monoProbe.remove();
+      const styleEl = document.createElementNS(SVG_NS, "style");
+      styleEl.textContent =
+        `svg.export { ${tokens} --font: ${font}; --mono: ${mono || "monospace"}; --hover: transparent; --selected: transparent; }\n` +
+        ($("scene-style").textContent || "");
+      clone.insertBefore(styleEl, clone.firstChild);
+      clone.insertBefore(s("rect", { width, height, fill: resolveColor("--canvas") }), styleEl.nextSibling);
+      return '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
+    }
+
+    function exportSvg() {
+      post({ type: "exportSvg", svg: serializeSvg() });
+    }
+
+    // ---------- interaction ----------
+
     function focusableRows() {
       return Array.prototype.slice.call(scene.querySelectorAll(".row"));
     }
 
+    function focusRow(rowId) {
+      const element = focusableRows().find((row) => row.getAttribute("data-row-id") === rowId);
+      if (element) {
+        element.focus();
+        scrollRowIntoView(element);
+      }
+    }
+
     function moveFocus(delta) {
-      var rows = focusableRows();
+      const rows = focusableRows();
       if (!rows.length) {
         return;
       }
-      var index = rows.indexOf(document.activeElement);
-      var next = index === -1 ? 0 : Math.min(Math.max(index + delta, 0), rows.length - 1);
+      const index = rows.indexOf(document.activeElement);
+      const next = index === -1 ? 0 : Math.min(Math.max(index + delta, 0), rows.length - 1);
       rows[next].focus();
       scrollRowIntoView(rows[next]);
     }
 
-    /** Pans so a focused row is on screen, since focus alone does not scroll SVG. */
+    /**
+     * Left and right move across the graph rather than through the list: to the
+     * nearest row in the neighbouring column, the way the eye would.
+     */
+    function moveFocusSideways(direction) {
+      const rows = focusableRows();
+      const current = document.activeElement;
+      if (rows.indexOf(current) === -1) {
+        moveFocus(direction);
+        return;
+      }
+      const centre = (element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2, w: box.width };
+      };
+      const from = centre(current);
+      let best = null;
+      let bestScore = Infinity;
+      for (const row of rows) {
+        if (row === current) {
+          continue;
+        }
+        const to = centre(row);
+        const dx = (to.x - from.x) * direction;
+        if (dx < from.w / 2) {
+          continue;
+        }
+        const score = dx + Math.abs(to.y - from.y) * 2;
+        if (score < bestScore) {
+          bestScore = score;
+          best = row;
+        }
+      }
+      if (best) {
+        best.focus();
+        scrollRowIntoView(best);
+      } else {
+        moveFocus(direction);
+      }
+    }
+
+    /**
+     * Pans so a focused row is on screen, since focus alone does not scroll SVG.
+     * On a narrow panel the inspector floats over the canvas, so the part it
+     * covers does not count as on screen.
+     */
     function scrollRowIntoView(rowEl) {
-      var box = rowEl.getBoundingClientRect();
-      var view = viewport.getBoundingClientRect();
-      var dx = 0;
-      var dy = 0;
+      const box = rowEl.getBoundingClientRect();
+      const view = viewport.getBoundingClientRect();
+      let right = view.right;
+      if (!inspectorEl.hidden) {
+        const cover = inspectorEl.getBoundingClientRect();
+        if (cover.width > 0 && cover.left < view.right && cover.left > view.left) {
+          right = cover.left;
+        }
+      }
+      let dx = 0;
+      let dy = 0;
       if (box.left < view.left) {
         dx = view.left - box.left + 40;
-      } else if (box.right > view.right) {
-        dx = view.right - box.right - 40;
+      } else if (box.right > right) {
+        dx = right - box.right - 40;
       }
       if (box.top < view.top) {
         dy = view.top - box.top + 40;
@@ -1132,442 +2672,297 @@
       }
     }
 
-    function activateRow(rowId, expand) {
-      var row = findRow(rowId);
-      if (!row) {
-        return;
-      }
-      if (expand) {
-        if (row.expandable) {
-          post({ type: "toggleExpand", nodeId: rowId });
-        }
-        return;
-      }
-      if (row.range) {
-        post({ type: "revealSource", offset: row.range.start, nodeId: rowId });
-      } else if (row.expandable) {
+    function toggleRow(rowId) {
+      const row = findRow(rowId);
+      if (row && row.expandable) {
         post({ type: "toggleExpand", nodeId: rowId });
       }
     }
 
-    function renderRow(row, card) {
-      var group = svgEl("g", { transform: "translate(0," + row.offsetY + ")" });
-      group.setAttribute("class", "row " + displayState(row));
-      group.setAttribute("data-row-id", row.id);
-      group.setAttribute("data-node-id", row.id);
-      // Focusable and labelled so the graph is usable without a mouse and
-      // legible to a screen reader, which sees only an undifferentiated SVG.
-      group.setAttribute("role", "listitem");
-      group.setAttribute("tabindex", "0");
-      group.setAttribute("aria-label", rowLabel(row));
-
-      group.appendChild(
-        svgEl("rect", { class: "row-hit", x: 1, y: 0, width: card.width - 2, height: row.height, rx: 5 }),
-      );
-
-      var centerY = ROW_HEIGHT / 2;
-      group.appendChild(stateIcon(row, PADDING_X + ICON_SIZE, centerY));
-
-      // The chevron sits in its own gutter so it never collides with the meta text.
-      var chevronGutter = row.expandable ? 16 : 0;
-      var metaRight = card.width - PADDING_X - chevronGutter;
-      var metaWidth = row.meta ? Math.min(row.meta.length * 6.2 + 8, 130) : 0;
-      var titleX = PADDING_X + ICON_SIZE * 2 + 10;
-      var titleWidth = metaRight - titleX - metaWidth - 8;
-      group.appendChild(text(fit(row.title, titleWidth), { x: titleX, y: centerY + 4 }, "row-title"));
-
-      if (row.meta) {
-        var meta = text(fit(row.meta, metaWidth), { x: metaRight, y: centerY + 4 }, "row-meta");
-        meta.setAttribute("text-anchor", "end");
-        group.appendChild(meta);
+    /** A click or Enter on a job: show it in the inspector and in the YAML. */
+    function activateRow(rowId) {
+      const row = findRow(rowId);
+      if (!row) {
+        return;
       }
-
-      if (row.expandable) {
-        var chevron = text(
-          row.expanded ? "▾" : "▸",
-          { x: card.width - PADDING_X + 4, y: centerY + 4 },
-          "chevron",
-        );
-        chevron.setAttribute("text-anchor", "end");
-        group.appendChild(chevron);
+      if (state.selected !== rowId) {
+        select(rowId);
+        // The inspector takes room from the canvas; keep the job it describes in view.
+        focusRow(rowId);
       }
+      revealRow(row);
+    }
 
-      if (row.expanded) {
-        var y = ROW_HEIGHT;
-        if (row.condition) {
-          y += CONDITION_HEIGHT - 4;
-          group.appendChild(
-            text(fit("if: " + row.condition, card.width - titleX - PADDING_X), { x: titleX, y: y }, "row-condition"),
-          );
-          y += 4;
+    function closest(target, predicate) {
+      let node = target;
+      while (node && node !== viewport && node.getAttribute) {
+        if (predicate(node)) {
+          return node;
         }
-        for (var i = 0; i < row.steps.length; i++) {
-          y += STEP_HEIGHT;
-          var step = row.steps[i];
-          var marker = step.kind === "run" ? "▸" : step.kind === "uses" ? "◆" : "•";
-          var stepState = displayState(step);
-          group.appendChild(
-            text(marker, { x: titleX, y: y - 5 }, "step-marker step-" + stepState),
-          );
-          group.appendChild(
-            text(
-              fit(step.name, card.width - titleX - PADDING_X - 16),
-              { x: titleX + 14, y: y - 5 },
-              "row-step step-" + stepState,
-            ),
-          );
+        node = node.parentNode;
+      }
+      return null;
+    }
+
+    function handleSceneClick(target, altKey) {
+      const rowEl = closest(target, (node) => node.hasAttribute("data-row-id"));
+      if (!rowEl) {
+        // A click on empty canvas puts the inspector away.
+        if (state.selected) {
+          select(null);
         }
-      }
-
-      var tooltip = svgEl("title");
-      tooltip.textContent = row.reason ? row.title + " — " + row.reason : row.title;
-      group.appendChild(tooltip);
-      return group;
-    }
-
-    function renderCard(card) {
-      var group = svgEl("g", { transform: "translate(" + card.x + "," + card.y + ")" });
-      group.setAttribute("class", "card " + card.kind);
-      group.setAttribute("data-card-id", card.id);
-      group.setAttribute("role", "list");
-      if (card.tab) {
-        group.setAttribute("aria-label", card.tab);
-      }
-
-      if (card.tab) {
-        // GitHub draws the matrix label as a tab attached to the top of the card.
-        var tabWidth = Math.min(card.tab.length * 7 + 24, card.width - 20);
-        group.appendChild(
-          svgEl("path", {
-            class: "card-tab",
-            d:
-              "M 6 0 L 6 " + (-TAB_HEIGHT + 6) +
-              " Q 6 " + -TAB_HEIGHT + " 12 " + -TAB_HEIGHT +
-              " L " + (tabWidth - 6) + " " + -TAB_HEIGHT +
-              " Q " + tabWidth + " " + -TAB_HEIGHT + " " + tabWidth + " " + (-TAB_HEIGHT + 6) +
-              " L " + tabWidth + " 0 Z",
-          }),
-        );
-        group.appendChild(text(card.tab, { x: 16, y: -TAB_HEIGHT + 17 }, "card-tab-text"));
-      }
-
-      group.appendChild(
-        svgEl("rect", { class: "card-box", width: card.width, height: card.height, rx: 10, ry: 10 }),
-      );
-
-      for (var i = 0; i < card.rows.length; i++) {
-        group.appendChild(renderRow(card.rows[i], card));
-      }
-      return group;
-    }
-
-    function render(graph, simulation, playthrough) {
-      state.graph = graph;
-      state.direction = graph.direction;
-      state.playing = playthrough != null;
-      // While a walk is running the simulation controls would only invite changes
-      // that invalidate it, so the bar takes their place.
-      renderHeader(graph.header, state.playing ? null : simulation);
-      renderPlaythrough(playthrough);
-      renderBanner(graph.warnings);
-      clear(scene);
-
-      if (graph.error) {
-        showMessage(graph.error, true);
         return;
       }
-      if (!graph.cards.length) {
-        showMessage("Nothing to visualize yet.", false);
+      const rowId = rowEl.getAttribute("data-row-id");
+      if (altKey || closest(target, (node) => node.getAttribute("data-action") === "toggle")) {
+        toggleRow(rowId);
         return;
       }
-      hideMessage();
-
-      var edgeLayer = svgEl("g");
-      for (var e = 0; e < graph.edges.length; e++) {
-        var edge = graph.edges[e];
-        var className = "edge" + (edge.inactive ? " inactive" : "") + (edge.broken ? " broken" : "");
-        edgeLayer.appendChild(svgEl("path", { class: className, d: edgePath(edge.points) }));
-        var dotClass = "edge-dot" + (edge.inactive ? " inactive" : "");
-        edgeLayer.appendChild(
-          svgEl("circle", { class: dotClass, cx: edge.from_point.x, cy: edge.from_point.y, r: DOT_RADIUS }),
-        );
-        edgeLayer.appendChild(
-          svgEl("circle", { class: dotClass, cx: edge.to_point.x, cy: edge.to_point.y, r: DOT_RADIUS }),
-        );
-      }
-      scene.appendChild(edgeLayer);
-
-      var cardLayer = svgEl("g");
-      for (var c = 0; c < graph.cards.length; c++) {
-        cardLayer.appendChild(renderCard(graph.cards[c]));
-      }
-      scene.appendChild(cardLayer);
-    }
-
-    // ---------- view ----------
-
-    function applyTransform() {
-      scene.setAttribute(
-        "transform",
-        "translate(" + state.offsetX + "," + state.offsetY + ") scale(" + state.scale + ")",
-      );
-    }
-
-    function setScale(next, originX, originY) {
-      var clamped = Math.min(Math.max(next, MIN_SCALE), MAX_SCALE);
-      if (clamped === state.scale) {
+      const stepEl = closest(target, (node) => node.hasAttribute("data-step-index"));
+      if (stepEl) {
+        const row = findRow(rowId);
+        if (state.selected !== rowId) {
+          select(rowId);
+        }
+        revealStep(row, Number(stepEl.getAttribute("data-step-index")));
         return;
       }
-      var rect = viewport.getBoundingClientRect();
-      var px = originX == null ? rect.width / 2 : originX;
-      var py = originY == null ? rect.height / 2 : originY;
-      // Keep the point under the cursor stationary while zooming.
-      var ratio = clamped / state.scale;
-      state.offsetX = px - (px - state.offsetX) * ratio;
-      state.offsetY = py - (py - state.offsetY) * ratio;
-      state.scale = clamped;
-      applyTransform();
+      activateRow(rowId);
     }
 
-    function fitToView() {
-      if (!state.graph || !state.graph.cards.length) {
-        return;
-      }
-      var rect = viewport.getBoundingClientRect();
-      if (!rect.width || !rect.height) {
-        return;
-      }
-      var scaleX = rect.width / Math.max(state.graph.width, 1);
-      var scaleY = rect.height / Math.max(state.graph.height, 1);
-      state.scale = Math.min(Math.max(Math.min(scaleX, scaleY), MIN_SCALE), 1);
-      // Anchor top-left the way GitHub does, rather than centring in the panel.
-      // The graph already carries its own margin, so no extra offset is needed.
-      state.offsetX = 0;
-      state.offsetY = 0;
-      applyTransform();
-    }
+    let pan = null;
 
-    function showMessage(content, isError) {
-      messageEl.textContent = content;
-      messageEl.className = isError ? "visible error" : "visible";
-    }
-
-    function hideMessage() {
-      messageEl.className = "";
-    }
-
-    /** Serialises the current scene into a standalone SVG document for export. */
-    function serializeSvg() {
-      if (!state.graph || !state.graph.cards.length) {
-        return "";
-      }
-      var clone = canvas.cloneNode(true);
-      clone.setAttribute("width", String(state.graph.width));
-      clone.setAttribute("height", String(state.graph.height));
-      clone.setAttribute("viewBox", "0 0 " + state.graph.width + " " + state.graph.height);
-      var clonedScene = clone.querySelector("#scene");
-      if (clonedScene) {
-        clonedScene.removeAttribute("transform");
-      }
-      var styles = document.querySelector("style");
-      if (styles) {
-        var styleEl = document.createElementNS(SVG_NS, "style");
-        styleEl.textContent = styles.textContent;
-        clone.insertBefore(styleEl, clone.firstChild);
-      }
-      return '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
-    }
-
-    // ---------- interaction ----------
-
-    var pan = null;
-
-    viewport.addEventListener("mousedown", function (event) {
+    viewport.addEventListener("mousedown", (event) => {
       if (event.button !== 0) {
         return;
       }
-      pan = {
-        x: event.clientX,
-        y: event.clientY,
-        offsetX: state.offsetX,
-        offsetY: state.offsetY,
-        moved: false,
-      };
+      pan = { x: event.clientX, y: event.clientY, offsetX: state.offsetX, offsetY: state.offsetY, moved: false };
       viewport.classList.add("panning");
     });
 
-    window.addEventListener("mousemove", function (event) {
+    window.addEventListener("mousemove", (event) => {
       if (!pan) {
         return;
       }
-      var dx = event.clientX - pan.x;
-      var dy = event.clientY - pan.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-        pan.moved = true;
+      const dx = event.clientX - pan.x;
+      const dy = event.clientY - pan.y;
+      if (!pan.moved && Math.abs(dx) <= DRAG_THRESHOLD && Math.abs(dy) <= DRAG_THRESHOLD) {
+        return;
       }
+      pan.moved = true;
+      state.userMoved = true;
       state.offsetX = pan.offsetX + dx;
       state.offsetY = pan.offsetY + dy;
       applyTransform();
     });
 
-    window.addEventListener("mouseup", function (event) {
+    window.addEventListener("mouseup", (event) => {
       if (!pan) {
         return;
       }
-      var wasDrag = pan.moved;
+      const wasDrag = pan.moved;
       pan = null;
       viewport.classList.remove("panning");
-      if (wasDrag) {
-        return;
+      if (!wasDrag) {
+        handleSceneClick(event.target, event.altKey);
       }
-
-      var target = event.target;
-      while (target && target !== viewport && !(target.getAttribute && target.getAttribute("data-node-id"))) {
-        target = target.parentNode;
-      }
-      if (!target || !target.getAttribute || !target.getAttribute("data-node-id")) {
-        return;
-      }
-      // Alt-click expands; a plain click jumps to the YAML.
-      activateRow(target.getAttribute("data-node-id"), event.altKey);
     });
 
-    function findRow(rowId) {
-      if (!state.graph) {
-        return null;
+    viewport.addEventListener("dblclick", (event) => {
+      const rowEl = closest(event.target, (node) => node.hasAttribute("data-row-id"));
+      if (rowEl && !closest(event.target, (node) => node.getAttribute("data-action") === "toggle")) {
+        toggleRow(rowEl.getAttribute("data-row-id"));
       }
-      for (var c = 0; c < state.graph.cards.length; c++) {
-        var rows = state.graph.cards[c].rows;
-        for (var r = 0; r < rows.length; r++) {
-          if (rows[r].id === rowId) {
-            return rows[r];
-          }
-        }
-      }
-      return null;
-    }
+    });
 
+    // Scrolling pans, the way a trackpad expects; Ctrl or ⌘ with the wheel, and a
+    // pinch (which arrives as a Ctrl-wheel), zoom around the pointer.
     viewport.addEventListener(
       "wheel",
-      function (event) {
+      (event) => {
         event.preventDefault();
-        var rect = viewport.getBoundingClientRect();
-        var factor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-        setScale(state.scale * factor, event.clientX - rect.left, event.clientY - rect.top);
+        if (event.ctrlKey || event.metaKey) {
+          const rect = viewport.getBoundingClientRect();
+          const factor = Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.0025));
+          setScale(state.scale * factor, event.clientX - rect.left, event.clientY - rect.top);
+          return;
+        }
+        const unit = event.deltaMode === 1 ? 16 : 1;
+        state.offsetX -= (event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX) * unit;
+        state.offsetY -= (event.shiftKey && !event.deltaX ? 0 : event.deltaY) * unit;
+        state.userMoved = true;
+        applyTransform();
       },
       { passive: false },
     );
 
-    document.getElementById("btn-zoom-in").addEventListener("click", function () {
-      setScale(state.scale * ZOOM_STEP);
-    });
-    document.getElementById("btn-zoom-out").addEventListener("click", function () {
-      setScale(state.scale / ZOOM_STEP);
-    });
-    document.getElementById("btn-fit").addEventListener("click", fitToView);
-    document.getElementById("btn-refresh").addEventListener("click", function () {
-      post({ type: "refresh" });
-    });
-    document.getElementById("btn-play").addEventListener("click", function () {
-      if (state.playing) {
-        post({ type: "stopPlaythrough" });
-        return;
-      }
-      // Starting from a focused row walks just that job, which is the natural
-      // meaning of "play from here".
-      var focused =
+    $("btn-zoom-in").addEventListener("click", () => setScale(state.scale * ZOOM_STEP));
+    $("btn-zoom-out").addEventListener("click", () => setScale(state.scale / ZOOM_STEP));
+    $("btn-zoom-reset").addEventListener("click", () => setScale(1));
+    $("btn-fit").addEventListener("click", () => fitToView());
+    $("btn-refresh").addEventListener("click", () => post({ type: "refresh" }));
+    $("btn-export").addEventListener("click", exportSvg);
+    $("btn-help").addEventListener("click", () => toggleShortcuts());
+    $("btn-play").addEventListener("click", () => {
+      // Starting with a job selected or focused walks just that job, which is the
+      // natural meaning of "play from here".
+      const focused =
         document.activeElement && document.activeElement.getAttribute
           ? document.activeElement.getAttribute("data-row-id")
           : null;
-      var row = focused ? findRow(focused) : null;
+      const row = findRow(focused) || findRow(state.selected);
       post(row ? { type: "startPlaythrough", nodeId: row.jobId } : { type: "startPlaythrough" });
     });
-    document.getElementById("btn-expand").addEventListener("click", function () {
-      post({ type: "expandAll" });
+    $("btn-steps").addEventListener("click", () => {
+      post({ type: state.expanded.length ? "collapseAll" : "expandAll" });
     });
-    document.getElementById("btn-collapse").addEventListener("click", function () {
-      post({ type: "collapseAll" });
-    });
-    document.getElementById("btn-direction").addEventListener("click", function () {
+    $("btn-direction").addEventListener("click", () => {
       post({ type: "setDirection", direction: state.direction === "LR" ? "TB" : "LR" });
     });
 
-    window.addEventListener("keydown", function (event) {
-      var tag = event.target && event.target.tagName;
+    function toggleShortcuts(force) {
+      const show = force == null ? shortcutsEl.hidden : force;
+      shortcutsEl.hidden = !show;
+      $("btn-help").setAttribute("aria-pressed", show ? "true" : "false");
+    }
+
+    window.addEventListener("keydown", (event) => {
+      const tag = event.target && event.target.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") {
         return;
       }
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      const focusedRow =
+        event.target && event.target.getAttribute ? event.target.getAttribute("data-row-id") : null;
+      const onButton = tag === "BUTTON";
 
-      var focusedRow =
-        event.target && event.target.getAttribute
-          ? event.target.getAttribute("data-row-id")
-          : null;
+      if (event.key === "Escape") {
+        if (!shortcutsEl.hidden) {
+          toggleShortcuts(false);
+        } else if (state.selected) {
+          const id = state.selected;
+          select(null);
+          focusRow(id);
+        }
+        return;
+      }
+      if (event.key === "?") {
+        toggleShortcuts();
+        return;
+      }
 
       if (focusedRow) {
         if (event.key === "Enter") {
           event.preventDefault();
-          activateRow(focusedRow, false);
+          activateRow(focusedRow);
           return;
         }
         if (event.key === " " || event.key === "Spacebar") {
           event.preventDefault();
-          activateRow(focusedRow, true);
+          toggleRow(focusedRow);
           return;
         }
       }
-
-      // Down/Up walk the rows in reading order; Home/End jump to the ends.
-      if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-        event.preventDefault();
-        moveFocus(1);
-        return;
-      }
-      if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-        event.preventDefault();
-        moveFocus(-1);
-        return;
-      }
-      if (event.key === "Home") {
-        event.preventDefault();
-        moveFocus(-Number.MAX_SAFE_INTEGER);
-        return;
-      }
-      if (event.key === "End") {
-        event.preventDefault();
-        moveFocus(Number.MAX_SAFE_INTEGER);
+      if (onButton && (event.key === "Enter" || event.key === " ")) {
         return;
       }
 
-      if (event.key === "+" || event.key === "=") {
-        setScale(state.scale * ZOOM_STEP);
-      } else if (event.key === "-") {
-        setScale(state.scale / ZOOM_STEP);
-      } else if (event.key === "0") {
-        fitToView();
+      // A playthrough can be answered without leaving the keyboard.
+      if (state.playthrough && state.playthrough.cursor) {
+        if (event.key === "s" || event.key === "S") {
+          decide("success");
+          return;
+        }
+        if (event.key === "f" || event.key === "F") {
+          decide("failure");
+          return;
+        }
+      }
+      if (state.playthrough && event.key === "Backspace" && state.playthrough.progress.decided > 0) {
+        event.preventDefault();
+        post({ type: "undoStep" });
+        return;
+      }
+
+      switch (event.key) {
+        case "ArrowDown":
+          event.preventDefault();
+          moveFocus(1);
+          return;
+        case "ArrowUp":
+          event.preventDefault();
+          moveFocus(-1);
+          return;
+        case "ArrowRight":
+          event.preventDefault();
+          moveFocusSideways(1);
+          return;
+        case "ArrowLeft":
+          event.preventDefault();
+          moveFocusSideways(-1);
+          return;
+        case "Home":
+          event.preventDefault();
+          moveFocus(-Number.MAX_SAFE_INTEGER);
+          return;
+        case "End":
+          event.preventDefault();
+          moveFocus(Number.MAX_SAFE_INTEGER);
+          return;
+        case "+":
+        case "=":
+          setScale(state.scale * ZOOM_STEP);
+          return;
+        case "-":
+          setScale(state.scale / ZOOM_STEP);
+          return;
+        case "0":
+          fitToView();
+          return;
+        case "1":
+          setScale(1);
+          return;
       }
     });
 
-    window.addEventListener("message", function (event) {
-      var message = event.data;
+    // Re-fit when the panel is resized, unless the user has taken over the view.
+    // The stage is observed rather than the canvas, so opening the inspector
+    // narrows the canvas without rescaling the graph under the user.
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(() => {
+        if (state.graph && !state.userMoved) {
+          fitToView(READABLE_SCALE);
+        }
+      }).observe($("stage"));
+    }
+
+    window.addEventListener("message", (event) => {
+      const message = event.data;
       if (!message || typeof message.type !== "string") {
         return;
       }
       if (message.type === "graph") {
-        var isFirst = state.graph == null;
-        render(message.graph, message.simulation, message.playthrough);
+        const isFirst = state.graph == null;
+        render(message);
         if (isFirst) {
-          fitToView();
+          fitToView(READABLE_SCALE);
         }
         return;
       }
       if (message.type === "requestExport") {
-        post({ type: "exportSvg", svg: serializeSvg() });
+        exportSvg();
         return;
       }
       if (message.type === "exportResult") {
         if (message.success) {
           showMessage("Saved to " + message.path, false);
-          window.setTimeout(hideMessage, 2500);
+          window.setTimeout(() => {
+            if (state.graph && !state.graph.error && state.graph.cards.length) {
+              hideMessage();
+            }
+          }, 2500);
         } else if (message.error) {
           showMessage(message.error, true);
         }

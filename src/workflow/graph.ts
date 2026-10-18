@@ -17,6 +17,25 @@ export const MAX_EXPANDED_MATRIX_ROWS = 50;
 
 type CardKind = "jobs" | "matrix" | "missing";
 
+/**
+ * Everything known about a job beyond what fits on its row, for the inspector.
+ * Shared by every row of an expanded matrix, since they are one job.
+ */
+type JobDetails = {
+  needs: string[];
+  /** Jobs that list this one in their `needs:`, in declaration order. */
+  neededBy: string[];
+  runsOn?: string;
+  environment?: string;
+  environmentUrl?: string;
+  timeoutMinutes?: string;
+  concurrency?: { group: string; cancelInProgress: boolean };
+  permissions?: string;
+  /** Names of the outputs the job declares. */
+  outputs: string[];
+  matrix?: WorkflowMatrix;
+};
+
 /** One job rendered as a row inside a card. */
 type CardRow = {
   /** Stable id used for expansion state and click targets. */
@@ -32,10 +51,19 @@ type CardRow = {
   condition?: string;
   /** Reusable workflow reference, when the job calls one. */
   uses?: string;
+  details?: JobDetails;
   steps: {
     name: string;
     kind: "run" | "uses" | "other";
     conditional: boolean;
+    /** `id:`, which is how other steps refer to this one. */
+    id?: string;
+    /** `uses:` reference, when the step calls an action. */
+    uses?: string;
+    /** `if:` expression, when the step is conditional. */
+    condition?: string;
+    continueOnError: boolean;
+    range?: SourceRange;
     /** Whether this step would run for the simulated event. */
     state: JobState;
     /** How the step stands in a playthrough, when one is in progress. */
@@ -168,14 +196,37 @@ function jobSteps(
       name: step.name,
       kind: step.isRun ? "run" : step.uses == null ? "other" : "uses",
       conditional: step.condition != null,
+      continueOnError: step.continueOnError,
       state: states[index] ?? "run",
+      ...(step.id == null ? {} : { id: step.id }),
+      ...(step.uses == null ? {} : { uses: step.uses }),
+      ...(step.condition == null ? {} : { condition: step.condition }),
+      ...(step.range == null ? {} : { range: step.range }),
       ...(runState == null ? {} : { run: runState }),
     };
   });
 }
 
-/** Job ids that take part in a `needs:` cycle. */
-function findCycles(jobs: WorkflowJob[]): string[][] {
+function jobDetails(job: WorkflowJob, neededBy: string[]): JobDetails {
+  return {
+    needs: job.needs,
+    neededBy,
+    outputs: job.outputs.map((output) => output.name),
+    ...(job.runsOn == null ? {} : { runsOn: job.runsOn }),
+    ...(job.environment == null ? {} : { environment: job.environment }),
+    ...(job.environmentUrl == null ? {} : { environmentUrl: job.environmentUrl }),
+    ...(job.timeoutMinutes == null ? {} : { timeoutMinutes: job.timeoutMinutes }),
+    ...(job.concurrency == null ? {} : { concurrency: job.concurrency }),
+    ...(job.permissions == null ? {} : { permissions: job.permissions }),
+    ...(job.matrix == null ? {} : { matrix: job.matrix }),
+  };
+}
+
+/**
+ * Job ids that take part in a `needs:` cycle, each cycle in dependency order:
+ * every job needs the next, and the last needs the first.
+ */
+export function findCycles(jobs: WorkflowJob[]): string[][] {
   const byId = new Map(jobs.map((job) => [job.id, job]));
   const state = new Map<string, "visiting" | "done">();
   const cycles: string[][] = [];
@@ -264,6 +315,13 @@ export function buildGraph(model: WorkflowModel, options: BuildGraphOptions): Gr
     return card;
   };
 
+  const neededBy = new Map<string, string[]>();
+  for (const job of model.jobs) {
+    for (const need of job.needs) {
+      neededBy.set(need, [...(neededBy.get(need) ?? []), job.id]);
+    }
+  }
+
   for (const job of model.jobs) {
     const outcome = simulation.get(job.id);
     const jobRun = options.run?.get(job.id);
@@ -278,6 +336,7 @@ export function buildGraph(model: WorkflowModel, options: BuildGraphOptions): Gr
       ...(job.uses == null ? {} : { uses: job.uses }),
       ...(meta == null ? {} : { meta }),
       steps: jobSteps(job, options.showSteps, outcome?.steps ?? [], jobRun),
+      details: jobDetails(job, neededBy.get(job.id) ?? []),
       ...(job.range == null ? {} : { range: job.range }),
     };
 

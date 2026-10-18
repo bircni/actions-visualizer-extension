@@ -142,6 +142,24 @@ describe("WorkflowDiagnostics", () => {
     diagnostics.dispose();
   });
 
+  it("reports a job condition that does not parse, whatever event is previewed", () => {
+    const diagnostics = new WorkflowDiagnostics();
+    diagnostics.refresh(fakeDocument('on: push\njobs:\n  a:\n    if: "github.ref =="\n') as never);
+    const codes = published.at(-1)?.diagnostics.map((d) => d.code) ?? [];
+    expect(codes).toContain("condition-parse-error");
+    diagnostics.dispose();
+  });
+
+  it("reports a needs cycle, which the graph alone used to show", () => {
+    const diagnostics = new WorkflowDiagnostics();
+    diagnostics.refresh(
+      fakeDocument("on: push\njobs:\n  a:\n    needs: b\n  b:\n    needs: a\n") as never,
+    );
+    const entry = published.at(-1)?.diagnostics.find((d) => d.code === "circular-needs");
+    expect(entry?.severity).toBe(0);
+    diagnostics.dispose();
+  });
+
   it("publishes an empty list for a healthy workflow, clearing any stale entry", () => {
     const diagnostics = new WorkflowDiagnostics();
     diagnostics.refresh(fakeDocument("on: push\njobs:\n  a:\n  b:\n    needs: a\n") as never);

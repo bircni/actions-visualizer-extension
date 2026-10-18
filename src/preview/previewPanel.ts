@@ -10,10 +10,12 @@
  * only wires VS Code APIs into it.
  */
 
+import { posix } from "node:path";
 import * as vscode from "vscode";
 import { logger } from "../logger.js";
 import { getInitialHtml } from "../webview/content.js";
 import { isWorkflowFile, looksLikeWorkflow } from "../workflow/detect.js";
+import { localReferenceCandidates, repositoryRoot } from "../workflow/references.js";
 import { readPreviewSettings } from "./previewConfig.js";
 import {
   createPreviewController,
@@ -22,9 +24,11 @@ import {
 } from "./previewController.js";
 import { clearActivePreviewSession, setActivePreviewSession } from "./previewTestBridge.js";
 
-const VIEW_TYPE = "actionsVisualizer.preview";
+export const VIEW_TYPE = "actionsVisualizer.preview";
 /** Context key that gates the export command in the command palette. */
 const FOCUS_CONTEXT_KEY = "actionsVisualizer.previewFocused";
+/** Workspace state key remembering what the panel showed, so a reload can restore it. */
+const LAST_DOCUMENT_KEY = "actionsVisualizer.previewedDocument";
 
 /** Writes an SVG to a user-chosen path, returning the path or undefined if cancelled. */
 async function promptAndWriteSvg(
@@ -62,6 +66,35 @@ async function revealOffset(document: vscode.TextDocument, offset: number): Prom
   editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 }
 
+/**
+ * Opens the file a local `uses: ./…` names, beside the workflow that references
+ * it. A reusable workflow opened this way becomes the preview's new target, the
+ * same as opening it by hand.
+ */
+async function openLocalReference(document: vscode.TextDocument, reference: string): Promise<void> {
+  const root =
+    repositoryRoot(document.uri.path) ??
+    vscode.workspace.getWorkspaceFolder(document.uri)?.uri.path ??
+    posix.dirname(document.uri.path);
+  for (const candidate of localReferenceCandidates(root, reference)) {
+    const target = document.uri.with({ path: candidate });
+    try {
+      await vscode.workspace.fs.stat(target);
+    } catch {
+      continue;
+    }
+    const beside = vscode.window.visibleTextEditors.find(
+      (editor) => editor.document.uri.toString() === document.uri.toString(),
+    );
+    await vscode.window.showTextDocument(target, {
+      viewColumn: beside?.viewColumn ?? vscode.ViewColumn.One,
+      preview: true,
+    });
+    return;
+  }
+  void vscode.window.showWarningMessage(`Could not find ${reference} in this repository.`);
+}
+
 /** True when the preview should be willing to render this document. */
 function isPreviewable(document: vscode.TextDocument): boolean {
   return isWorkflowFile(document.uri.fsPath) || looksLikeWorkflow(document.getText());
@@ -77,7 +110,10 @@ export class PreviewManager implements vscode.Disposable {
   private readonly panelSubscriptions: vscode.Disposable[] = [];
   private pendingRender: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private readonly extensionUri: vscode.Uri) {
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly workspaceState: vscode.Memento,
+  ) {
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
         this.scheduleRender(event.document);
@@ -122,14 +158,47 @@ export class PreviewManager implements vscode.Disposable {
       VIEW_TYPE,
       PreviewManager.titleFor(document),
       { viewColumn: column, preserveFocus: true },
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist", "webview")],
-      },
+      { ...this.webviewOptions(), retainContextWhenHidden: true },
     );
+    await this.adopt(panel, document);
+    logger.info("Opened workflow graph preview", { path: document.uri.fsPath });
+  }
+
+  /**
+   * Brings back a panel VS Code kept across a reload, pointed at the document it
+   * showed before. A panel with nothing to show is closed rather than left blank.
+   */
+  public async restore(panel: vscode.WebviewPanel): Promise<void> {
+    const saved = this.workspaceState.get<string>(LAST_DOCUMENT_KEY);
+    if (this.panel || saved == null) {
+      panel.dispose();
+      return;
+    }
+    let document: vscode.TextDocument;
+    try {
+      document = await vscode.workspace.openTextDocument(vscode.Uri.parse(saved));
+    } catch (error) {
+      logger.info("Could not restore the workflow graph preview", { uri: saved, error });
+      panel.dispose();
+      return;
+    }
+    panel.webview.options = this.webviewOptions();
+    await this.adopt(panel, document);
+    logger.info("Restored workflow graph preview", { path: document.uri.fsPath });
+  }
+
+  private webviewOptions(): vscode.WebviewOptions {
+    return {
+      enableScripts: true,
+      localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, "dist", "webview")],
+    };
+  }
+
+  /** Makes `panel` the preview of `document`: fills it in, wires it and renders. */
+  private async adopt(panel: vscode.WebviewPanel, document: vscode.TextDocument): Promise<void> {
     this.panel = panel;
     this.document = document;
+    panel.title = PreviewManager.titleFor(document);
 
     const codiconsStyleHref = panel.webview
       .asWebviewUri(vscode.Uri.joinPath(this.extensionUri, "dist", "webview", "codicon.css"))
@@ -162,7 +231,6 @@ export class PreviewManager implements vscode.Disposable {
 
     void vscode.commands.executeCommand("setContext", FOCUS_CONTEXT_KEY, true);
     this.bindController(document);
-    logger.info("Opened workflow graph preview", { path: document.uri.fsPath });
     await this.controller?.render();
   }
 
@@ -192,12 +260,14 @@ export class PreviewManager implements vscode.Disposable {
     if (!panel) {
       return;
     }
+    void this.workspaceState.update(LAST_DOCUMENT_KEY, document.uri.toString());
     const controller = createPreviewController({
       readText: () => document.getText(),
       readPath: () => document.uri.fsPath,
       readSettings: () => readPreviewSettings(document.uri),
       postMessage: (message) => panel.webview.postMessage(message),
       revealSource: (offset) => revealOffset(document, offset),
+      openReference: (reference) => openLocalReference(document, reference),
       saveSvg: (svg, defaultName) => promptAndWriteSvg(svg, defaultName, document.uri),
       logInfo: (message, data) => {
         logger.info(message, data);

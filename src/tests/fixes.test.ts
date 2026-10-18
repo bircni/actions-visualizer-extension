@@ -5,7 +5,7 @@ import { parseWorkflow } from "../workflow/parse.js";
 
 function setup(source: string) {
   const model = parseWorkflow(source);
-  return { model, findings: lintWorkflow(model, { inputs: {} }) };
+  return { model, findings: lintWorkflow(model) };
 }
 
 function apply(source: string, edits: readonly WorkflowTextEdit[]): string {

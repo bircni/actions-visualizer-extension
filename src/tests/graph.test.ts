@@ -117,8 +117,15 @@ describe("buildGraph card grouping", () => {
 
   it("carries steps only when steps are enabled", () => {
     expect(graphOf("simple.yml").cards[0]?.rows[0]?.steps).toEqual([
-      { name: "actions/checkout@v5", kind: "uses", conditional: false, state: "run" },
-      { name: "Build", kind: "run", conditional: false, state: "run" },
+      expect.objectContaining({
+        name: "actions/checkout@v5",
+        kind: "uses",
+        uses: "actions/checkout@v5",
+        conditional: false,
+        continueOnError: false,
+        state: "run",
+      }),
+      expect.objectContaining({ name: "Build", kind: "run", conditional: false, state: "run" }),
     ]);
     expect(graphOf("simple.yml", { showSteps: false }).cards[0]?.rows[0]?.steps).toEqual([]);
   });
@@ -321,5 +328,40 @@ describe("buildGraph step states", () => {
 
     const onPr = graphOfText(source, { simulation: { event: "pull_request", inputs: {} } });
     expect(onPr.cards[0]?.rows[0]?.steps.map((step) => step.state)).toEqual(["run", "skipped"]);
+  });
+});
+
+describe("buildGraph job details", () => {
+  it("gives each row what the inspector shows about its job", () => {
+    const graph = graphOf("showcase.yml");
+    const rows = graph.cards.flatMap((card) => card.rows);
+    const publish = rows.find((row) => row.jobId === "publish");
+    expect(publish?.details).toEqual({
+      needs: ["test", "build"],
+      neededBy: ["notify"],
+      runsOn: "ubuntu-latest",
+      environment: "production",
+      outputs: [],
+    });
+    const lint = rows.find((row) => row.jobId === "lint");
+    expect(lint?.details?.neededBy).toEqual(["test", "build"]);
+  });
+
+  it("carries a matrix's axes for the inspector", () => {
+    const rows = graphOf("showcase.yml").cards.flatMap((card) => card.rows);
+    const test = rows.find((row) => row.jobId === "test");
+    expect(test?.details?.matrix?.axes.map((axis) => axis.key)).toEqual(["os", "node"]);
+    expect(test?.details?.matrix?.combinations).toBe(4);
+  });
+
+  it("gives each step its source range, so it can be revealed on its own", () => {
+    const text =
+      "on: push\njobs:\n  a:\n    steps:\n      - id: one\n        run: echo 1\n      - if: always()\n        uses: ./.github/actions/x\n";
+    const [first, second] = graphOfText(text).cards[0]?.rows[0]?.steps ?? [];
+    expect(first?.id).toBe("one");
+    expect(second?.uses).toBe("./.github/actions/x");
+    expect(second?.condition).toBe("always()");
+    expect(text.slice(first?.range?.start ?? 0)).toMatch(/^id: one/);
+    expect(text.slice(second?.range?.start ?? 0)).toMatch(/^if: always\(\)/);
   });
 });

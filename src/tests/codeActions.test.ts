@@ -52,9 +52,7 @@ function document(text: string, path = "/repo/.github/workflows/ci.yml") {
 }
 
 function diagnostic(text: string, code: string) {
-  const finding = lintWorkflow(parseWorkflow(text), { inputs: {} }).find(
-    (candidate) => candidate.code === code,
-  );
+  const finding = lintWorkflow(parseWorkflow(text)).find((candidate) => candidate.code === code);
   if (finding?.range == null) {
     throw new Error(`No ranged finding for ${code}`);
   }

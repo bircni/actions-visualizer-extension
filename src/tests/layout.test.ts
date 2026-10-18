@@ -196,3 +196,88 @@ describe("edge routing", () => {
     expect(edge?.from_point.x).toBe((from?.x ?? 0) + (from?.width ?? 0) / 2);
   });
 });
+
+describe("edge routing around cards", () => {
+  type Box = { x: number; y: number; width: number; height: number };
+
+  /** True when an axis-aligned segment passes through the inside of a box. */
+  const crosses = (a: { x: number; y: number }, b: { x: number; y: number }, box: Box): boolean => {
+    const inset = 1;
+    const left = box.x + inset;
+    const right = box.x + box.width - inset;
+    const top = box.y + inset;
+    const bottom = box.y + box.height - inset;
+    const minX = Math.min(a.x, b.x);
+    const maxX = Math.max(a.x, b.x);
+    const minY = Math.min(a.y, b.y);
+    const maxY = Math.max(a.y, b.y);
+    return maxX > left && minX < right && maxY > top && minY < bottom;
+  };
+
+  // `ship` needs `build` directly, so its edge skips over `test` and `package`.
+  const LONG_EDGE = [
+    "on: push",
+    "jobs:",
+    "  build:",
+    "    steps: []",
+    "  test:",
+    "    needs: build",
+    "    steps: []",
+    "  package:",
+    "    needs: test",
+    "    steps: []",
+    "  ship:",
+    "    needs: [build, package]",
+    "    steps: []",
+  ].join("\n");
+
+  for (const direction of ["LR", "TB"] as const) {
+    it(`never draws an edge through a card it skips (${direction})`, () => {
+      const graph = layoutGraph(buildGraph(parseWorkflow(LONG_EDGE), DEFAULTS), {
+        direction,
+        expandedRows: [],
+      });
+      expect(graph.edges.length).toBeGreaterThanOrEqual(4);
+      for (const edge of graph.edges) {
+        const others = graph.cards.filter(
+          (entry) => entry.id !== edge.from && entry.id !== edge.to,
+        );
+        for (let index = 1; index < edge.points.length; index += 1) {
+          const a = edge.points[index - 1];
+          const b = edge.points[index];
+          if (!a || !b) {
+            continue;
+          }
+          for (const other of others) {
+            expect(crosses(a, b, other), `${edge.from} → ${edge.to} crosses ${other.id}`).toBe(
+              false,
+            );
+          }
+          // Every segment is horizontal or vertical.
+          expect(a.x === b.x || a.y === b.y).toBe(true);
+        }
+      }
+    });
+  }
+
+  it("routes a cycle's backward edge around the outside of the graph", () => {
+    const graph = laidOut("cycle.yml");
+    const contentBottom = Math.max(...graph.cards.map((entry) => entry.y + entry.height));
+    const backward = graph.edges.filter((edge) => edge.to_point.x <= edge.from_point.x);
+    expect(backward.length).toBeGreaterThan(0);
+    for (const edge of backward) {
+      expect(Math.max(...edge.points.map((point) => point.y))).toBeGreaterThan(contentBottom);
+    }
+    // The canvas grows to hold the loop.
+    expect(graph.height).toBeGreaterThan(contentBottom + METRICS.loopOffset);
+  });
+
+  it("hands the renderer the geometry the cards were measured with", () => {
+    const graph = laidOut("fan-out.yml");
+    expect(graph.metrics).toMatchObject({
+      rowHeight: METRICS.rowHeight,
+      stepHeight: METRICS.stepHeight,
+      tabHeight: METRICS.tabHeight,
+    });
+  });
+});
