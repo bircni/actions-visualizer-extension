@@ -47,6 +47,19 @@ let executedCommands: { command: string; args: unknown[] }[] = [];
 let warnings: string[] = [];
 let visibleEditors: FakeEditor[] = [];
 let shownDocuments: unknown[] = [];
+let shownOptions: unknown[] = [];
+/** Paths `workspace.fs.stat` reports as existing. */
+let existingFiles = new Set<string>();
+/** Documents `workspace.openTextDocument` can open, by URI string. */
+let openableDocuments = new Map<string, unknown>();
+let workspaceState = new Map<string, unknown>();
+const memento = {
+  get: (key: string) => workspaceState.get(key),
+  update: (key: string, value: unknown) => {
+    workspaceState.set(key, value);
+    return Promise.resolve();
+  },
+};
 
 type FakeEditor = {
   document: { uri: { toString: () => string } };
@@ -58,6 +71,7 @@ type FakePanel = {
   webview: {
     cspSource: string;
     html: string;
+    options?: unknown;
     asWebviewUri: (uri: unknown) => { toString: () => string };
     postMessage: ReturnType<typeof vi.fn>;
     onDidReceiveMessage: (listener: Listener<unknown>) => Disposable;
@@ -110,6 +124,7 @@ vi.mock("vscode", () => ({
       fsPath: [base.fsPath, ...parts].join("/"),
       toString: () => [base.fsPath, ...parts].join("/"),
     }),
+    parse: (value: string) => ({ toString: () => value }),
   },
   Range: class {
     constructor(
@@ -136,8 +151,9 @@ vi.mock("vscode", () => ({
       warnings.push(message);
       return Promise.resolve();
     },
-    showTextDocument: async (document: unknown) => {
+    showTextDocument: async (document: unknown, options?: unknown) => {
       shownDocuments.push(document);
+      shownOptions.push(options);
       const editor: FakeEditor = {
         document: document as FakeEditor["document"],
         selection: undefined,
@@ -156,7 +172,21 @@ vi.mock("vscode", () => ({
     onDidChangeTextDocument: documentChanged.event,
     onDidCloseTextDocument: documentClosed.event,
     onDidChangeConfiguration: configChanged.event,
+    getWorkspaceFolder: () => {},
+    openTextDocument: async (uri: { toString: () => string }) => {
+      const document = openableDocuments.get(uri.toString());
+      if (document == null) {
+        throw new Error(`cannot open ${uri.toString()}`);
+      }
+      return document;
+    },
     fs: {
+      stat: async (uri: { path: string }) => {
+        if (!existingFiles.has(uri.path)) {
+          throw new Error(`no such file: ${uri.path}`);
+        }
+        return {};
+      },
       writeFile: async (uri: { fsPath: string }, content: Uint8Array) => {
         writtenFiles.push({ path: uri.fsPath, content: Buffer.from(content).toString("utf8") });
       },
@@ -181,18 +211,34 @@ const OTHER = fs.readFileSync(
   "utf8",
 );
 
+type FakeUri = {
+  toString: () => string;
+  fsPath: string;
+  path: string;
+  with: (change: { path: string }) => FakeUri;
+};
+
 type FakeDocument = {
-  uri: { toString: () => string; fsPath: string; path: string };
+  uri: FakeUri;
   getText: () => string;
   positionAt: (offset: number) => { offset: number };
 };
+
+function fakeUri(uriPath: string): FakeUri {
+  return {
+    toString: () => `file://${uriPath}`,
+    fsPath: uriPath,
+    path: uriPath,
+    with: (change) => fakeUri(change.path),
+  };
+}
 
 function fakeDocument(
   text = FIXTURE,
   uriPath = "/repo/.github/workflows/fan-out.yml",
 ): FakeDocument {
   return {
-    uri: { toString: () => `file://${uriPath}`, fsPath: uriPath, path: uriPath },
+    uri: fakeUri(uriPath),
     getText: () => text,
     positionAt: (offset: number) => ({ offset }),
   };
@@ -215,8 +261,12 @@ beforeEach(() => {
   warnings = [];
   visibleEditors = [];
   shownDocuments = [];
+  shownOptions = [];
   createdPanels = [];
-  manager = new PreviewManager({ fsPath: "/ext" } as never);
+  existingFiles = new Set();
+  openableDocuments = new Map();
+  workspaceState = new Map();
+  manager = new PreviewManager({ fsPath: "/ext" } as never, memento as never);
 });
 
 afterEach(() => {
@@ -526,5 +576,93 @@ describe("PreviewManager export", () => {
     createdPanels[0]?.dispose();
     await manager.exportActive();
     expect(warnings).toEqual(["Open a workflow graph before exporting it."]);
+  });
+});
+
+describe("PreviewManager restore after reload", () => {
+  it("remembers the document it shows, following retargets", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    expect(workspaceState.get("actionsVisualizer.previewedDocument")).toBe(
+      "file:///repo/.github/workflows/fan-out.yml",
+    );
+    activeEditorChanged.fire({
+      document: fakeDocument(OTHER, "/repo/.github/workflows/simple.yml"),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(workspaceState.get("actionsVisualizer.previewedDocument")).toBe(
+      "file:///repo/.github/workflows/simple.yml",
+    );
+  });
+
+  it("adopts the kept panel and renders the remembered document into it", async () => {
+    const document = fakeDocument();
+    openableDocuments.set(document.uri.toString(), document);
+    workspaceState.set("actionsVisualizer.previewedDocument", document.uri.toString());
+    const kept = makePanel("stale title");
+
+    await manager.restore(kept as never);
+    expect(kept.disposed).toBe(false);
+    expect(kept.title).toBe("Graph: fan-out.yml");
+    expect(kept.webview.options).toMatchObject({ enableScripts: true });
+    expect(kept.webview.html).toContain("vscode-resource://test");
+    expect(lastPosted(kept)?.type).toBe("graph");
+
+    // It is now the one preview: showing again reuses it rather than opening another.
+    await manager.show(document as never, 2);
+    expect(createdPanels).toHaveLength(0);
+    expect(kept.reveal).toHaveBeenCalled();
+  });
+
+  it("closes a kept panel when nothing was remembered", async () => {
+    const kept = makePanel("Graph");
+    await manager.restore(kept as never);
+    expect(kept.disposed).toBe(true);
+  });
+
+  it("closes a kept panel whose document can no longer be opened", async () => {
+    workspaceState.set("actionsVisualizer.previewedDocument", "file:///gone.yml");
+    const kept = makePanel("Graph");
+    await manager.restore(kept as never);
+    expect(kept.disposed).toBe(true);
+  });
+
+  it("closes a second kept panel rather than showing two previews", async () => {
+    const document = fakeDocument();
+    openableDocuments.set(document.uri.toString(), document);
+    workspaceState.set("actionsVisualizer.previewedDocument", document.uri.toString());
+    await manager.show(document as never, 2);
+    const kept = makePanel("Graph");
+    await manager.restore(kept as never);
+    expect(kept.disposed).toBe(true);
+  });
+});
+
+describe("PreviewManager local references", () => {
+  it("opens a reusable workflow resolved against the repository root", async () => {
+    existingFiles.add("/repo/.github/workflows/deploy.yml");
+    await manager.show(fakeDocument() as never, 2);
+    createdPanels[0]?.send({ type: "openReference", value: "./.github/workflows/deploy.yml" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shownDocuments).toHaveLength(1);
+    expect((shownDocuments[0] as FakeUri).path).toBe("/repo/.github/workflows/deploy.yml");
+    expect(shownOptions[0]).toMatchObject({ preview: true });
+  });
+
+  it("opens an action's metadata file, trying action.yaml after action.yml", async () => {
+    existingFiles.add("/repo/.github/actions/setup/action.yaml");
+    await manager.show(fakeDocument() as never, 2);
+    createdPanels[0]?.send({ type: "openReference", value: "./.github/actions/setup" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect((shownDocuments[0] as FakeUri).path).toBe("/repo/.github/actions/setup/action.yaml");
+  });
+
+  it("says so when the reference names nothing on disk", async () => {
+    await manager.show(fakeDocument() as never, 2);
+    createdPanels[0]?.send({ type: "openReference", value: "./.github/workflows/missing.yml" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shownDocuments).toEqual([]);
+    expect(warnings).toEqual([
+      "Could not find ./.github/workflows/missing.yml in this repository.",
+    ]);
   });
 });

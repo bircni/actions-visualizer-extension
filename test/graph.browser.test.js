@@ -36,14 +36,26 @@ const THEMES = {
     --vscode-testing-iconPassed:#3d8b40;--vscode-editorWarning-foreground:#bf8803;
     --vscode-errorForeground:#e51400;--vscode-badge-background:#3572CE;
     --vscode-badge-foreground:#ffffff;--vscode-input-background:#ffffff;
-    --vscode-input-foreground:#3b3b3b;--vscode-input-border:#cecece;`,
+    --vscode-input-foreground:#3b3b3b;--vscode-input-border:#cecece;
+    --vscode-inputOption-activeBackground:#bed6ed;--vscode-inputOption-activeBorder:#005fb8;
+    --vscode-inputOption-activeForeground:#000000;--vscode-focusBorder:#005fb8;
+    --vscode-list-inactiveSelectionBackground:#e4e6f1;--vscode-sideBar-background:#f8f8f8;
+    --vscode-sideBar-foreground:#3b3b3b;--vscode-button-background:#005fb8;
+    --vscode-button-foreground:#ffffff;--vscode-button-secondaryBackground:#e5e5e5;
+    --vscode-button-secondaryForeground:#3b3b3b;`,
   dark: `--vscode-editor-background:#1f1f1f;--vscode-editor-foreground:#cccccc;
     --vscode-panel-border:#2b2b2b;--vscode-editorWidget-background:#202020;
     --vscode-descriptionForeground:#9d9d9d;--vscode-textLink-foreground:#4daafc;
     --vscode-testing-iconPassed:#73c991;--vscode-editorWarning-foreground:#cca700;
     --vscode-errorForeground:#f85149;--vscode-badge-background:#616161;
     --vscode-badge-foreground:#f8f8f8;--vscode-input-background:#313131;
-    --vscode-input-foreground:#cccccc;--vscode-input-border:#3c3c3c;`,
+    --vscode-input-foreground:#cccccc;--vscode-input-border:#3c3c3c;
+    --vscode-inputOption-activeBackground:#2489db82;--vscode-inputOption-activeBorder:#2488db;
+    --vscode-inputOption-activeForeground:#ffffff;--vscode-focusBorder:#0078d4;
+    --vscode-list-inactiveSelectionBackground:#37373d;--vscode-sideBar-background:#181818;
+    --vscode-sideBar-foreground:#cccccc;--vscode-button-background:#0078d4;
+    --vscode-button-foreground:#ffffff;--vscode-button-secondaryBackground:#313131;
+    --vscode-button-secondaryForeground:#cccccc;`,
 };
 
 /** Loads the template with placeholders filled in and a stubbed VS Code API. */
@@ -295,13 +307,28 @@ test.describe("workflow graph webview", () => {
     await expect(page.locator(".row-step")).toHaveCount(2);
   });
 
-  test("zooms with the wheel, keeping the pointer anchored", async ({ page }) => {
+  test("zooms with Ctrl and the wheel, keeping the pointer anchored", async ({ page }) => {
     await mount(page);
     await sendGraph(page, "fanOut");
     const before = await scaleOf(page);
     await page.locator("#viewport").hover();
+    await page.keyboard.down("Control");
     await page.mouse.wheel(0, -240);
+    await page.keyboard.up("Control");
     expect(await scaleOf(page)).toBeGreaterThan(before);
+  });
+
+  test("pans rather than zooms on a plain scroll, the way a trackpad expects", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "fanOut");
+    const before = await scaleOf(page);
+    const firstBefore = await page.locator(".card").first().boundingBox();
+    await page.locator("#viewport").hover();
+    await page.mouse.wheel(0, 120);
+    await expect.poll(async () => (await page.locator(".card").first().boundingBox()).y).toBeLessThan(
+      firstBefore.y,
+    );
+    expect(await scaleOf(page)).toBeCloseTo(before, 5);
   });
 
   test("pans with a drag without treating it as a click", async ({ page }) => {
@@ -363,6 +390,9 @@ test.describe("workflow graph webview", () => {
     expect(exported.svg).toContain("<style");
     // The export must not carry the interactive pan/zoom transform.
     expect(exported.svg).not.toContain('id="scene" transform');
+    // Outside VS Code there are no theme tokens, so the colours travel resolved.
+    expect(exported.svg).toMatch(/--ink: rgba?\(/);
+    expect(exported.svg).not.toContain("var(--vscode");
   });
 
   test("drives every toolbar button", async ({ page }) => {
@@ -370,16 +400,18 @@ test.describe("workflow graph webview", () => {
     await sendGraph(page, "fanOut");
     await resetPosted(page);
 
-    await page.locator("#btn-expand").click();
-    await page.locator("#btn-collapse").click();
+    await page.locator("#btn-steps").click();
     await page.locator("#btn-direction").click();
     await page.locator("#btn-refresh").click();
+    await page.locator("#btn-export").click();
+    await page.locator("#btn-play").click();
 
     const posted = await page.evaluate(() => window.__posted);
     expect(posted).toContainEqual({ type: "expandAll" });
-    expect(posted).toContainEqual({ type: "collapseAll" });
     expect(posted).toContainEqual({ type: "setDirection", direction: "TB" });
     expect(posted).toContainEqual({ type: "refresh" });
+    expect(posted).toContainEqual({ type: "startPlaythrough" });
+    expect(posted.some((message) => message.type === "exportSvg")).toBe(true);
   });
 
   test("zooms and fits with the keyboard", async ({ page }) => {
@@ -529,7 +561,9 @@ test.describe("workflow graph webview", () => {
 
     // Zoom in far enough that the far side of the graph is off screen.
     await page.locator("#viewport").hover();
+    await page.keyboard.down("Control");
     await page.mouse.wheel(0, -600);
+    await page.keyboard.up("Control");
 
     await page.locator(".row").first().focus();
     await page.keyboard.press("End");
@@ -596,6 +630,74 @@ test.describe("workflow graph webview", () => {
       );
       expect(await contrastOf(page, "#outcome-success"), "succeeded").toBeGreaterThanOrEqual(3);
       expect(await contrastOf(page, "#outcome-failure"), "failed").toBeGreaterThanOrEqual(3);
+    });
+  }
+
+  test("moves across the graph with left and right", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "fanOut");
+    await page.locator('[data-row-id="row:build"]').focus();
+    const focusedRow = async () =>
+      page.evaluate(() => document.activeElement?.getAttribute("data-row-id"));
+
+    await page.keyboard.press("ArrowRight");
+    expect(["row:lint", "row:test"]).toContain(await focusedRow());
+    await page.keyboard.press("ArrowRight");
+    expect(await focusedRow()).toBe("row:publish");
+    await page.keyboard.press("ArrowLeft");
+    expect(["row:lint", "row:test"]).toContain(await focusedRow());
+  });
+
+  test("opens the inspector beside the graph without rescaling it", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "showcase");
+    const before = await scaleOf(page);
+    await expect(page.locator("#inspector")).toBeHidden();
+
+    await page.locator('[data-row-id="row:publish"]').click();
+    await expect(page.locator("#inspector")).toBeVisible();
+    await expect(page.locator("#inspector h2")).toHaveText("publish");
+    await expect(page.locator('[data-row-id="row:publish"]')).toHaveClass(/selected/);
+    await expect(page.locator("path.edge.on-path").first()).toBeVisible();
+    // Choosing a job must not change the zoom under the user.
+    expect(await scaleOf(page)).toBeCloseTo(before, 5);
+
+    // The inspector sits beside the canvas, never over the header.
+    const header = await page.locator("#header").boundingBox();
+    const inspector = await page.locator("#inspector").boundingBox();
+    expect(inspector.y).toBeGreaterThanOrEqual(header.y + header.height - 1);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#inspector")).toBeHidden();
+  });
+
+  test("keeps the selected job in view when the inspector narrows the canvas", async ({ page }) => {
+    await mount(page);
+    await sendGraph(page, "showcase");
+    await page.locator('[data-row-id="row:notify"]').click();
+    const visible = await page.evaluate(() => {
+      const row = document.querySelector('[data-row-id="row:notify"]');
+      const viewport = document.querySelector("#viewport");
+      if (!row || !viewport) {
+        return false;
+      }
+      const a = row.getBoundingClientRect();
+      const b = viewport.getBoundingClientRect();
+      return a.left >= b.left && a.right <= b.right;
+    });
+    expect(visible).toBe(true);
+  });
+
+  for (const theme of ["light", "dark"]) {
+    test(`keeps the inspector readable on the ${theme} theme`, async ({ page }) => {
+      await mount(page, theme);
+      await sendGraph(page, "showcase");
+      await page.locator('[data-row-id="row:publish"]').click();
+      expect(await contrastOf(page, "#inspector h2"), "job name").toBeGreaterThanOrEqual(4.5);
+      expect(await contrastOf(page, "#inspector dt"), "property name").toBeGreaterThanOrEqual(4.5);
+      expect(await contrastOf(page, "#inspector dd"), "property value").toBeGreaterThanOrEqual(4.5);
+      expect(await contrastOf(page, "#inspector-reveal"), "button").toBeGreaterThanOrEqual(4.5);
+      expect(await contrastOf(page, "#summary .tally"), "status bar").toBeGreaterThanOrEqual(4.5);
     });
   }
 });

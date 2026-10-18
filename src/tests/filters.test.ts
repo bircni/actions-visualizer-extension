@@ -104,13 +104,13 @@ describe("refMatchesFilters", () => {
   it("does not fire for a branch when only tags are declared", () => {
     const result = refMatchesFilters("refs/heads/main", { branches: [], tags: ["v*"] });
     expect(result.matches).toBe(false);
-    expect(result.reason).toContain("only declares `tags:`");
+    expect(result.reason).toContain("only declares tag filters");
   });
 
   it("does not fire for a tag when only branches are declared", () => {
     const result = refMatchesFilters("refs/tags/v1", { branches: ["main"], tags: [] });
     expect(result.matches).toBe(false);
-    expect(result.reason).toContain("only declares `branches:`");
+    expect(result.reason).toContain("only declares branch filters");
   });
 
   it("matches a branch against branch filters even when tag filters exist too", () => {
@@ -118,5 +118,33 @@ describe("refMatchesFilters", () => {
     expect(refMatchesFilters("refs/heads/main", filters).matches).toBe(true);
     expect(refMatchesFilters("refs/tags/v1", filters).matches).toBe(true);
     expect(refMatchesFilters("refs/heads/other", filters).matches).toBe(false);
+  });
+});
+
+describe("refMatchesFilters with ignore lists", () => {
+  it("does not fire for a branch `branches-ignore:` names", () => {
+    const filters = { branches: [], tags: [], branchesIgnore: ["main", "dependabot/**"] };
+    const ignored = refMatchesFilters("refs/heads/main", filters);
+    expect(ignored.matches).toBe(false);
+    expect(ignored.reason).toContain("branches-ignore:");
+    expect(refMatchesFilters("refs/heads/dependabot/npm/x", filters).matches).toBe(false);
+    expect(refMatchesFilters("refs/heads/topic", filters).matches).toBe(true);
+  });
+
+  it("does not fire for a tag `tags-ignore:` names", () => {
+    const filters = { branches: [], tags: [], tagsIgnore: ["*-rc*"] };
+    expect(refMatchesFilters("refs/tags/v1.0-rc1", filters).matches).toBe(false);
+    expect(refMatchesFilters("refs/tags/v1.0", filters).matches).toBe(true);
+  });
+
+  it("counts an ignore list as filtering that kind of ref", () => {
+    // Only branches are filtered, so a tag push does not trigger the workflow.
+    const result = refMatchesFilters("refs/tags/v1", {
+      branches: [],
+      tags: [],
+      branchesIgnore: ["gh-pages"],
+    });
+    expect(result.matches).toBe(false);
+    expect(result.reason).toContain("only declares branch filters");
   });
 });

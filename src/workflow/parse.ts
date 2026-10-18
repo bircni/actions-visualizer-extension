@@ -167,16 +167,60 @@ function describeRunsOn(value: unknown): string | undefined {
 }
 
 /** `environment` accepts a string or a `{ name, url }` map. */
-function describeEnvironment(value: unknown): string | undefined {
+function describeEnvironment(value: unknown): { name?: string; url?: string } {
+  const plain = toPlain(value);
+  if (typeof plain === "string") {
+    return { name: plain };
+  }
+  if (plain != null && typeof plain === "object" && !Array.isArray(plain)) {
+    const record = plain as Record<string, unknown>;
+    const name = record["name"];
+    const url = record["url"];
+    return {
+      ...(typeof name === "string" ? { name } : {}),
+      ...(typeof url === "string" ? { url } : {}),
+    };
+  }
+  return {};
+}
+
+/** `concurrency` accepts a group string or a `{ group, cancel-in-progress }` map. */
+function describeConcurrency(value: unknown): WorkflowJob["concurrency"] {
+  const plain = toPlain(value);
+  if (typeof plain === "string" || typeof plain === "number") {
+    return { group: String(plain), cancelInProgress: false };
+  }
+  if (plain != null && typeof plain === "object" && !Array.isArray(plain)) {
+    const record = plain as Record<string, unknown>;
+    const group = record["group"];
+    if (typeof group === "string" || typeof group === "number") {
+      return { group: String(group), cancelInProgress: record["cancel-in-progress"] === true };
+    }
+  }
+  return undefined;
+}
+
+/** `permissions` accepts `read-all`, `write-all`, `{}` or a map of scopes to levels. */
+function describePermissions(value: unknown): string | undefined {
   const plain = toPlain(value);
   if (typeof plain === "string") {
     return plain;
   }
-  if (plain != null && typeof plain === "object") {
-    const name = (plain as Record<string, unknown>)["name"];
-    return typeof name === "string" ? name : undefined;
+  if (plain != null && typeof plain === "object" && !Array.isArray(plain)) {
+    const scopes = Object.entries(plain as Record<string, unknown>).map(
+      ([scope, level]) => `${scope}: ${String(level)}`,
+    );
+    return scopes.length === 0 ? "none" : scopes.join(", ");
   }
   return undefined;
+}
+
+/** A scalar that may be written as a number or an expression, kept as text. */
+function describeScalar(value: unknown): string | undefined {
+  const plain = toPlain(value);
+  return typeof plain === "string" || typeof plain === "number" || typeof plain === "boolean"
+    ? String(plain)
+    : undefined;
 }
 
 /** Qualifiers shown under a trigger node, e.g. `branches: main` or `cron: 0 0 * * *`. */
@@ -314,7 +358,15 @@ function parseWorkflowOutputs(value: unknown): WorkflowOutput[] {
 }
 
 function emptyTrigger(event: string, range?: SourceRange): WorkflowTrigger {
-  const trigger: WorkflowTrigger = { event, details: [], branches: [], tags: [], inputs: [] };
+  const trigger: WorkflowTrigger = {
+    event,
+    details: [],
+    branches: [],
+    tags: [],
+    branchesIgnore: [],
+    tagsIgnore: [],
+    inputs: [],
+  };
   return range ? { ...trigger, range } : trigger;
 }
 
@@ -343,6 +395,12 @@ function parseTriggers(value: unknown): WorkflowTrigger[] {
       const details = describeTriggerDetails(entry.value);
       const branches = isMap(entry.value) ? asStringArray(entry.value.get("branches", true)) : [];
       const tags = isMap(entry.value) ? asStringArray(entry.value.get("tags", true)) : [];
+      const branchesIgnore = isMap(entry.value)
+        ? asStringArray(entry.value.get("branches-ignore", true))
+        : [];
+      const tagsIgnore = isMap(entry.value)
+        ? asStringArray(entry.value.get("tags-ignore", true))
+        : [];
       const inputs = isMap(entry.value) ? parseInputs(entry.value.get("inputs", true)) : [];
       const outputs = isMap(entry.value)
         ? parseWorkflowOutputs(entry.value.get("outputs", true))
@@ -352,6 +410,8 @@ function parseTriggers(value: unknown): WorkflowTrigger[] {
         details,
         branches,
         tags,
+        branchesIgnore,
+        tagsIgnore,
         inputs,
         ...(outputs.length === 0 ? {} : { outputs }),
       });
@@ -479,6 +539,9 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
   const condition = asString(map.get("if", true));
   const runsOn = describeRunsOn(map.get("runs-on", true));
   const environment = describeEnvironment(map.get("environment", true));
+  const timeoutMinutes = describeScalar(map.get("timeout-minutes", true));
+  const concurrency = describeConcurrency(map.get("concurrency", true));
+  const permissions = describePermissions(map.get("permissions", true));
   const uses = asString(map.get("uses", true));
   const strategy = map.get("strategy", true);
   const matrix = isMap(strategy) ? parseMatrix(strategy.get("matrix", true)) : undefined;
@@ -537,7 +600,11 @@ function parseJob(id: string, keyNode: Node, value: unknown): WorkflowJob {
     ...(env == null ? {} : { env }),
     ...(condition == null ? {} : { condition }),
     ...(runsOn == null ? {} : { runsOn }),
-    ...(environment == null ? {} : { environment }),
+    ...(environment.name == null ? {} : { environment: environment.name }),
+    ...(environment.url == null ? {} : { environmentUrl: environment.url }),
+    ...(timeoutMinutes == null ? {} : { timeoutMinutes }),
+    ...(concurrency == null ? {} : { concurrency }),
+    ...(permissions == null ? {} : { permissions }),
     ...(uses == null ? {} : { uses }),
     ...(matrix == null ? {} : { matrix }),
     ...(range == null ? {} : { range }),

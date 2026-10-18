@@ -10,7 +10,6 @@ import * as vscode from "vscode";
 import { isWorkflowFile } from "../workflow/detect.js";
 import { lintWorkflow, type LintSeverity } from "../workflow/lint.js";
 import { parseWorkflow } from "../workflow/parse.js";
-import type { Simulation } from "../workflow/simulate.js";
 
 const SOURCE = "Actions Visualizer";
 
@@ -55,13 +54,13 @@ export class WorkflowDiagnostics implements vscode.Disposable {
    * previewed, but reporting problems against an arbitrary YAML file the user
    * never called a workflow would be presumptuous.
    */
-  public refresh(document: vscode.TextDocument, simulation?: Simulation): void {
+  public refresh(document: vscode.TextDocument): void {
     if (!isWorkflowFile(document.uri.fsPath)) {
       return;
     }
 
     const text = document.getText();
-    const findings = lintWorkflow(parseWorkflow(text), simulation ?? { inputs: {} });
+    const findings = lintWorkflow(parseWorkflow(text));
     const diagnostics = findings.map((finding) => {
       const start = document.positionAt(Math.min(finding.range?.start ?? 0, text.length));
       const end = document.positionAt(Math.min(finding.range?.end ?? 0, text.length));

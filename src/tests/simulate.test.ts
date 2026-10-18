@@ -475,3 +475,73 @@ describe("trigger filters", () => {
     ).toBe(true);
   });
 });
+
+describe("trigger ignore filters", () => {
+  it("does not fire for a branch the workflow ignores", () => {
+    const model = parseWorkflow(
+      "on:\n  push:\n    branches-ignore: [main]\njobs:\n  build:\n    steps:\n      - run: x\n",
+    );
+    const onMain = { event: "push", ref: "refs/heads/main", inputs: {} };
+    expect(triggerFires(model, onMain).matches).toBe(false);
+    expect(simulateJobs(model, onMain).get("build")?.state).toBe("skipped");
+    expect(triggerFires(model, { ...onMain, ref: "refs/heads/topic" }).matches).toBe(true);
+  });
+});
+
+/** A simulation of `event` with `main` picked as the ref. */
+function on(event: string): Simulation {
+  return { event, ref: "refs/heads/main", inputs: {} };
+}
+
+describe("pull request events", () => {
+  const GATED = [
+    "on: [push, pull_request, pull_request_target]",
+    "jobs:",
+    "  publish:",
+    "    if: github.ref == 'refs/heads/main'",
+    "    steps: []",
+    "  preview:",
+    "    if: github.head_ref != ''",
+    "    steps: []",
+  ].join("\n");
+  it("does not claim a job gated on the base branch's ref runs for a pull request", () => {
+    // A pull request runs on refs/pull/<n>/merge. The ref the user picks is the
+    // base branch its filters match, so it must not leak into `github.ref`.
+    const result = simulateJobs(parseWorkflow(GATED), on("pull_request"));
+    expect(result.get("publish")?.state).not.toBe("run");
+    expect(result.get("publish")?.state).toBe("unknown");
+  });
+
+  it("exposes the picked branch as the pull request's base", () => {
+    const contexts = buildContexts(parseWorkflow(GATED), on("pull_request"));
+    expect(evaluate("github.base_ref", contexts)).toBe("main");
+    expect(evaluate("github.ref", contexts)).toBe(UNKNOWN);
+    expect(evaluate("github.head_ref", contexts)).toBe(UNKNOWN);
+  });
+
+  it("runs pull_request_target on the base branch's ref", () => {
+    const result = simulateJobs(parseWorkflow(GATED), on("pull_request_target"));
+    expect(result.get("publish")?.state).toBe("run");
+  });
+
+  it("knows head_ref is empty outside pull requests", () => {
+    const result = simulateJobs(parseWorkflow(GATED), on("push"));
+    expect(result.get("publish")?.state).toBe("run");
+    expect(result.get("preview")?.state).toBe("skipped");
+  });
+
+  it("offers a value to pin only where a condition is still undecided", () => {
+    const model = parseWorkflow(
+      [
+        "on: [push, pull_request]",
+        "jobs:",
+        "  deploy:",
+        "    if: github.event_name == 'push' && secrets.DEPLOY_KEY != ''",
+        "    steps: []",
+      ].join("\n"),
+    );
+    expect(unresolvedPaths(model, on("push"))).toEqual(["secrets.DEPLOY_KEY"]);
+    // On a pull request the event alone decides it, so the secret does not matter.
+    expect(unresolvedPaths(model, on("pull_request"))).toEqual([]);
+  });
+});

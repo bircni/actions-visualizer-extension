@@ -67,7 +67,7 @@ export class WorkflowCodeActionsProvider implements vscode.CodeActionProvider {
 
     const text = document.getText();
     const model = parseWorkflow(text);
-    const findings = lintWorkflow(model, { inputs: {} });
+    const findings = lintWorkflow(model);
     const actions: vscode.CodeAction[] = [];
 
     for (const diagnostic of context.diagnostics) {

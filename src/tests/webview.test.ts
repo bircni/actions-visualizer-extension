@@ -44,13 +44,16 @@ describe("getInitialHtml", () => {
   it("renders the toolbar controls the host listens for", () => {
     const output = html();
     for (const id of [
+      "btn-play",
+      "btn-steps",
       "btn-direction",
-      "btn-expand",
-      "btn-collapse",
+      "btn-export",
+      "btn-refresh",
       "btn-fit",
       "btn-zoom-in",
       "btn-zoom-out",
-      "btn-refresh",
+      "btn-zoom-reset",
+      "btn-help",
     ]) {
       expect(output).toContain(`id="${id}"`);
     }
@@ -58,7 +61,17 @@ describe("getInitialHtml", () => {
 
   it("provides the header and simulation slots the renderer fills in", () => {
     const output = html();
-    for (const id of ["title", "triggers", "simulation", "banner", "scene", "message"]) {
+    for (const id of [
+      "title",
+      "triggers",
+      "simulation",
+      "playthrough",
+      "banner",
+      "scene",
+      "message",
+      "inspector",
+      "summary",
+    ]) {
       expect(output).toContain(`id="${id}"`);
     }
   });

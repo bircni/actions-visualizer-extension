@@ -393,6 +393,39 @@ function evaluateNode(
   }
 }
 
+/**
+ * The truthiness of an expression, decided wherever the value is not.
+ *
+ * `secrets.X && false` has an unknown *value* — it is either `secrets.X` or
+ * `false` — but both candidates are falsy, so as an `if:` it is decidedly false.
+ * The same holds for `secrets.X || true`. Working on truth rather than value lets
+ * a condition decide on either side of a logical operator, while
+ * {@link evaluateNode} keeps returning honest values for everything else.
+ */
+function truthOf(
+  node: ExpressionNode,
+  contexts: EvaluationContexts,
+  runtime: EvaluationRuntime,
+): boolean | Unknown {
+  if (node.kind === "unary") {
+    const operand = truthOf(node.operand, contexts, runtime);
+    return isUnknown(operand) ? UNKNOWN : !operand;
+  }
+  if (node.kind === "binary" && (node.operator === "&&" || node.operator === "||")) {
+    const decisive = node.operator === "||";
+    const left = truthOf(node.left, contexts, runtime);
+    if (left === decisive) {
+      return decisive;
+    }
+    const right = truthOf(node.right, contexts, runtime);
+    if (right === decisive) {
+      return decisive;
+    }
+    return isUnknown(left) || isUnknown(right) ? UNKNOWN : !decisive;
+  }
+  return toBoolean(evaluateNode(node, contexts, runtime));
+}
+
 /** Outcome of evaluating a condition: definitely yes, definitely no, or undecidable. */
 type ConditionResult = "true" | "false" | "unknown";
 
@@ -419,13 +452,13 @@ export function evaluateCondition(
   }
 
   try {
-    let value: ExprValue;
+    let truth: boolean | Unknown;
     const template = parseTemplate(trimmed);
     if (template == null) {
       // No `${{ }}` at all: the whole value is the expression.
-      value = evaluateNode(parseExpression(trimmed), contexts, runtime);
+      truth = truthOf(parseExpression(trimmed), contexts, runtime);
     } else if (template.length === 1 && template[0]?.kind === "expression") {
-      value = evaluateNode(template[0].node, contexts, runtime);
+      truth = truthOf(template[0].node, contexts, runtime);
     } else {
       // Mixed text and expressions produce a string, which is then tested for truth.
       let text = "";
@@ -440,10 +473,9 @@ export function evaluateCondition(
         }
         text += toDisplayString(partValue);
       }
-      value = text;
+      truth = toBoolean(text);
     }
 
-    const truth = toBoolean(value);
     if (isUnknown(truth)) {
       return { result: "unknown" };
     }

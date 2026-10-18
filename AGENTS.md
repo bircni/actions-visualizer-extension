@@ -49,6 +49,7 @@ src/
     playthrough.ts             walks a run, replaying the user's decisions
     outputs.ts                 the outputs a step is expected to produce
     filters.ts                 GitHub's `branches:`/`tags:` pattern matching
+    references.ts              resolves a local `uses: ./…` to the file it names
     lint.ts                    workflow checks reported as editor diagnostics
     graph.ts                   WorkflowModel -> GraphModel (cards + edges, no coordinates)
     layout.ts                  GraphModel -> PositionedGraph (dagre + elbow routing)
@@ -65,7 +66,8 @@ src/
     previewConfig.ts           reads and clamps `actions-visualizer.*` settings
     previewTestBridge.ts       `__test.*` hook for extension-host tests
   webview/
-    content.html               single file: styles, markup and the inline SVG renderer script
+    content.html               single file: styles, markup, the inline SVG renderer and the
+                               job inspector
     content.ts                 loads the template and fills its placeholders
   tests/*.test.ts              unit tests
   e2e/                         extension-host and Playwright launcher tests
@@ -125,6 +127,10 @@ cannot know `secrets`, `steps` or a job's outputs, and guessing would be worse t
 `UNKNOWN` propagates through every operation except a short circuit that is already decided
 (`false && secrets.X` is false). Never collapse it to `false` for convenience.
 
+A condition's *truth* can be decided where its *value* is not: `secrets.X && false` has an unknown
+value (it is one of two falsy things) but is a false `if:`. `evaluateCondition` works on truth for
+exactly that reason, while `evaluate` keeps returning `UNKNOWN`. Keep the two apart.
+
 The user can pin a value for any unresolved path, which is why `unresolvedReferences` exists. Note
 the distinction it rests on: a property of a {@link PartialRecord} we did not model is *unknown*,
 while a missing key of a fully known object is *absent*. That is what makes
@@ -141,8 +147,12 @@ This is the load-bearing architectural decision. `src/workflow/layout.ts` runs d
 host and posts a fully positioned graph to the webview, which only draws it. Keep it that way:
 
 - The webview must never compute layout. If a card's size changes, the host recomputes and re-posts.
-- `METRICS` in `layout.ts` must stay in sync with the geometry in `content.html`. The renderer draws
-  from the width and height it is given rather than measuring text.
+- The vertical geometry the cards were measured with travels with the graph as
+  `PositionedGraph.metrics`, so the renderer cannot drift from `METRICS`. Only the horizontal
+  positions inside a card (icon, title, chevron) live in `content.html`. The renderer draws from
+  the width and height it is given; it measures text only to truncate it.
+- Edges are routed in the host too, orthogonally through the lanes dagre reserves for long edges,
+  so an edge never crosses a card it skips.
 - This is why layout is testable as plain Node code, with no browser and no second bundle.
 
 ### 5. Playthrough Stores Decisions, Not State
@@ -231,6 +241,8 @@ Conventional Commits, scoped by subarea: `feat(graph): …`, `fix(parse): …`, 
 | Add a new graph-level warning | `workflow/graph.ts`, pushed onto `warnings` |
 | Add a setting | `contributes.configuration` in `package.json`, then `preview/previewConfig.ts`, then thread it through `previewController.ts` |
 | Add a webview interaction | `content.html` posts a message, `previewController.ts` handles it in `handleMessage` |
+| Show a new job property in the inspector | `workflow/parse.ts` and `workflow/model.ts`, then `JobDetails` in `workflow/graph.ts`, then `renderInspector` in `content.html` |
+| Add a workflow check to the Problems panel | `workflow/lint.ts` (a new `LintCode`), with a fix in `workflow/fixes.ts` only if it is always correct |
 | Change layout direction or spacing | `workflow/layout.ts` `METRICS` |
 
 ## Definition of Done

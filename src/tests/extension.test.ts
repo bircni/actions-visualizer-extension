@@ -11,6 +11,8 @@ let activeEditor:
 const shownPreviews: { path: string; column: number }[] = [];
 let codeActionRegistrations = 0;
 let codeActionSelector: unknown;
+let serializers: Map<string, { deserializeWebviewPanel: (panel: unknown) => unknown }>;
+let managerStates: unknown[];
 
 class CodeActionKind {
   constructor(public readonly value: string) {}
@@ -37,6 +39,13 @@ vi.mock("vscode", () => ({
     },
     get activeTextEditor() {
       return activeEditor;
+    },
+    registerWebviewPanelSerializer: (
+      viewType: string,
+      serializer: { deserializeWebviewPanel: (panel: unknown) => unknown },
+    ) => {
+      serializers.set(viewType, serializer);
+      return { dispose: () => {} };
     },
   },
   commands: {
@@ -87,7 +96,15 @@ vi.mock("vscode", () => ({
 }));
 
 vi.mock("../preview/previewPanel.js", () => ({
+  VIEW_TYPE: "actionsVisualizer.preview",
   PreviewManager: class {
+    constructor(_extensionUri: unknown, workspaceState: unknown) {
+      managerStates.push(workspaceState);
+    }
+    public restore(panel: { id: string }): Promise<void> {
+      shownPreviews.push({ path: `restore:${panel.id}`, column: 0 });
+      return Promise.resolve();
+    }
     public show(document: { uri: { fsPath: string } }, column: number): Promise<void> {
       shownPreviews.push({ path: document.uri.fsPath, column });
       return Promise.resolve();
@@ -106,8 +123,16 @@ const { activate, deactivate } = await import("../extension.js");
 
 const WORKFLOW_TEXT = "on: push\njobs:\n  build:\n    steps: []\n";
 
-function context(): { subscriptions: { dispose: () => void }[]; extensionUri: { fsPath: string } } {
-  return { subscriptions: [], extensionUri: { fsPath: "/ext" } };
+function context(): {
+  subscriptions: { dispose: () => void }[];
+  extensionUri: { fsPath: string };
+  workspaceState: { get: () => void; update: () => Promise<void> };
+} {
+  return {
+    subscriptions: [],
+    extensionUri: { fsPath: "/ext" },
+    workspaceState: { get: () => {}, update: () => Promise.resolve() },
+  };
 }
 
 function editor(fsPath: string, text = WORKFLOW_TEXT, viewColumn = 1) {
@@ -122,6 +147,8 @@ beforeEach(() => {
   shownPreviews.length = 0;
   codeActionRegistrations = 0;
   codeActionSelector = undefined;
+  serializers = new Map();
+  managerStates = [];
   delete process.env["ACTIONS_VISUALIZER_ENABLE_TEST_COMMANDS"];
 });
 
@@ -196,6 +223,15 @@ describe("preview commands", () => {
     activate(context() as never);
     await registeredCommands.get("actionsVisualizer.showPreview")?.();
     expect(warnings).toHaveLength(1);
+  });
+
+  it("restores a preview VS Code kept across a reload", async () => {
+    const ctx = context();
+    activate(ctx as never);
+    // The manager remembers what it showed in workspace state, which survives a reload.
+    expect(managerStates).toEqual([ctx.workspaceState]);
+    await serializers.get("actionsVisualizer.preview")?.deserializeWebviewPanel({ id: "kept" });
+    expect(shownPreviews).toEqual([{ path: "restore:kept", column: 0 }]);
   });
 
   it("delegates the export command to the manager", async () => {

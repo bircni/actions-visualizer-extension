@@ -35,6 +35,10 @@ export type WorkflowTrigger = {
   branches: string[];
   /** `tags:` filter, used the same way. */
   tags: string[];
+  /** `branches-ignore:` filter; a branch matching any of these does not fire the event. */
+  branchesIgnore: string[];
+  /** `tags-ignore:` filter, read the same way. */
+  tagsIgnore: string[];
   /** Inputs declared for `workflow_dispatch` / `workflow_call`. */
   inputs: WorkflowInput[];
   /** Outputs exposed by `workflow_call`, when this is a reusable workflow. */
@@ -117,6 +121,14 @@ export type WorkflowJob = {
   runsOn?: string;
   /** `environment` name when set. */
   environment?: string;
+  /** `environment.url`, kept raw since it is usually an expression. */
+  environmentUrl?: string;
+  /** `timeout-minutes`, kept raw since it may be an expression. */
+  timeoutMinutes?: string;
+  /** `concurrency` group, plus whether a newer run cancels this one. */
+  concurrency?: { group: string; cancelInProgress: boolean };
+  /** `permissions` in one line: `read-all`, `none`, or `contents: read, …`. */
+  permissions?: string;
   /** `uses:` reference when this job calls a reusable workflow. */
   uses?: string;
   /** Matrix summary when `strategy.matrix` is present. */
