@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/bircni/actions-visualizer-extension/compare/v0.3.0..v0.4.0) - 2026-10-18
+
+### Added
+
+- **(webview)** redesign the graph panel and add a job inspector ([#10](https://github.com/bircni/actions-visualizer-extension/issues/10)) - ([b049d1b](https://github.com/bircni/actions-visualizer-extension/commit/b049d1bbbcaff24a4c91ce50d2673e64f91a7bc5))
+
+### Internal
+
+- **(deps)** update dependencies and raise VS Code baseline ([#6](https://github.com/bircni/actions-visualizer-extension/issues/6)) - ([f79367d](https://github.com/bircni/actions-visualizer-extension/commit/f79367d7d4733b9e9fa3b543595b7c552a71f6ba))
+- **(deps)** pin @types/vscode and move module resolution to nodenext ([#7](https://github.com/bircni/actions-visualizer-extension/issues/7)) - ([9903183](https://github.com/bircni/actions-visualizer-extension/commit/9903183040f0b0748a96d3e5c5519b86f144ddcc))
+- **(deps)** update dev dependencies ([#8](https://github.com/bircni/actions-visualizer-extension/issues/8)) - ([e9959f4](https://github.com/bircni/actions-visualizer-extension/commit/e9959f4be117b24014b7651da10860dcd290b2fe))
+
 ## [0.3.0](https://github.com/bircni/actions-visualizer-extension/compare/v0.2.0..v0.3.0) - 2026-08-13
 
 ### Added
